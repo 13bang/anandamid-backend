@@ -1,19 +1,18 @@
 import {
-    IsNotEmpty,
+    IsOptional,
     IsString,
     IsNumber,
-    IsOptional,
     IsBoolean,
     IsUUID,
     IsInt,
     Min
 } from "class-validator";
 
-export class CreateProductDto {
+export class UpdateProductDto {
 
-    @IsNotEmpty()
+    @IsOptional()
     @IsUUID()
-    category_id: string;
+    category_id?: string;
 
     @IsOptional()
     @IsString()
@@ -23,17 +22,17 @@ export class CreateProductDto {
     @IsString()
     external_sku_id?: string;
 
-    @IsNotEmpty()
+    @IsOptional()
     @IsString()
-    name: string;
+    name?: string;
 
     @IsOptional()
     @IsString()
     description?: string;
 
-    @IsNotEmpty()
+    @IsOptional()
     @IsNumber()
-    price_normal: number;
+    price_normal?: number;
 
     @IsOptional()
     @IsNumber()
