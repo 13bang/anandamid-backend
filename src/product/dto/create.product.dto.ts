@@ -17,11 +17,11 @@ export class CreateProductDto {
 
     @IsOptional()
     @IsString()
-    external_product_id?: string;
+    product_id?: string;
 
     @IsOptional()
     @IsString()
-    external_sku_id?: string;
+    sku_id?: string;
 
     @IsNotEmpty()
     @IsString()

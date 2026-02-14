@@ -19,11 +19,16 @@ export class Product {
     @PrimaryGeneratedColumn('uuid')
     id: string;
 
-    @Column({ type: 'varchar', length: 100, nullable: true })
-    external_product_id: string;
+    @Column({ 
+        type: 'varchar', 
+        length: 100, 
+        nullable: false,
+        unique: true 
+    })
+    product_id: string;
 
     @Column({ type: 'varchar', length: 100, nullable: true })
-    external_sku_id: string;
+    sku_id: string;
 
     @ManyToOne(() => Category, (category) => category.products, {
         onDelete: 'RESTRICT'
@@ -31,7 +36,7 @@ export class Product {
     @JoinColumn({ name: 'category_id' })
     category: Category;
 
-    @Column({ length: 200 })
+    @Column({ type: 'text' })
     name: string;
 
     @Column({ type: 'text', nullable: true })
@@ -47,7 +52,7 @@ export class Product {
     stock: number;
 
     @Column({ type: 'varchar', length: 100, nullable: true })
-    sku_code: string;
+    sku_seller: string;
 
     @Column({ type: 'varchar', length: 100, nullable: true })
     warranty: string;

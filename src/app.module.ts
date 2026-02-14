@@ -7,6 +7,8 @@ import { TypeOrmModule } from "@nestjs/typeorm";
 import { TypeOrmConfig } from "./config/database.config"
 import { CategoryModule } from './category/category.module';
 import { ProductImageModule } from './product-image/product-image.module';
+import { AuthModule } from './auth/auth.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [ConfigModule.forRoot({
@@ -19,7 +21,9 @@ import { ProductImageModule } from './product-image/product-image.module';
   }),
   ProductModule,
   CategoryModule,
-  ProductImageModule], 
+  ProductImageModule,
+  AuthModule,
+  AdminModule], 
   controllers: [AppController],
   providers: [AppService],
 })

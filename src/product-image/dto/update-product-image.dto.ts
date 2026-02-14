@@ -3,6 +3,6 @@ import { IsOptional, IsUrl } from 'class-validator';
 export class UpdateProductImageDto {
 
   @IsOptional()
-  @IsUrl()
-  imageUrl?: string;
+  @IsUrl({}, { each: true })
+  image_urls?: string[];
 }

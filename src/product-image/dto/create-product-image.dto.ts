@@ -3,9 +3,9 @@ import { IsUUID, IsArray, IsUrl } from 'class-validator';
 export class CreateProductImageDto {
 
   @IsUUID()
-  productId: string;
+  product_id: string;
 
   @IsArray()
   @IsUrl({}, { each: true })
-  imageUrl: string[];
+  image_urls: string[];
 }

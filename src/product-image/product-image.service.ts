@@ -18,7 +18,7 @@ export class ProductImageService {
 
   async create(dto: CreateProductImageDto) {
     const product = await this.productRepo.findOne({
-      where: { id: dto.productId },
+      where: { id: dto.product_id },
     });
 
     if (!product) {
@@ -26,11 +26,10 @@ export class ProductImageService {
     }
 
     await this.repo.delete({
-      product: { id: dto.productId },
+      product: { id: dto.product_id },
     });
 
-    // 🔥 INSERT YANG BARU
-    const imagesToSave: ProductImage[] = dto.imageUrl.map((url) =>
+    const imagesToSave: ProductImage[] = dto.image_urls.map((url) =>
       this.repo.create({
         image_url: url,
         product,
@@ -48,7 +47,7 @@ export class ProductImageService {
 
   async findOne(id: string) {
     const image = await this.repo.findOne({
-      where: { id }, // ❗ uuid string, jangan Number()
+      where: { id },
       relations: ['product'],
     });
 
@@ -63,8 +62,8 @@ export class ProductImageService {
 
     const image = await this.findOne(id);
 
-    if (dto.imageUrl) {
-      image.image_url = dto.imageUrl;
+    if (dto.image_urls) {
+      image.image_url = dto.image_urls[0];
     }
 
     return await this.repo.save(image);

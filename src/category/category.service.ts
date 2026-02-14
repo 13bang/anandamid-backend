@@ -8,7 +8,6 @@ import { Product } from '../product/entities/product.entity';
 import { ConflictException } from '@nestjs/common';
 import { CreateCategoryDto } from './dto/create.category.dto';
 import { UpdateCategoryDto } from './dto/update.category.dto';
-import { Code } from 'typeorm/browser';
 
 @Injectable()
 export class CategoryService {
