@@ -9,6 +9,7 @@ import {
   Post,
   Put,
   UseGuards,
+  Query,
 } from '@nestjs/common';
 
 import { ProductService } from './product.service';
@@ -16,11 +17,11 @@ import { CreateProductDto } from './dto/create.product.dto';
 import { UpdateProductDto } from './dto/update.product.dto';
 import { findOneParams } from './dto/find-one.params';
 import { Product } from './entities/product.entity';
-import { Query } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt.guards';
 
-@Controller('products')
-export class ProductController {
+@Controller('admin/products') // ⬅️ UBAH DISINI
+@UseGuards(JwtAuthGuard)      // ⬅️ GUARD SEKALI DI ATAS
+export class AdminProductController {
   constructor(private readonly productService: ProductService) {}
 
   @Get()
@@ -34,13 +35,11 @@ export class ProductController {
   }
 
   @Post()
-  @UseGuards(JwtAuthGuard)
   async create(@Body() dto: CreateProductDto): Promise<Product> {
     return this.productService.createProduct(dto);
   }
 
   @Put(':id')
-  @UseGuards(JwtAuthGuard)
   async update(
     @Param() params: findOneParams,
     @Body() dto: UpdateProductDto,
@@ -49,7 +48,6 @@ export class ProductController {
   }
 
   @Delete(':id')
-  @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
   async delete(@Param() params: findOneParams): Promise<void> {
     await this.productService.deleteProductByParams(params.id);

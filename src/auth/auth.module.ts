@@ -6,10 +6,12 @@ import { AuthController } from './auth.controller';
 
 import { AdminModule } from '../admin/admin.module';
 import { JwtStrategy } from './strategies/jwt.strategies';
+import { AdminLogModule } from '../admin-log/admin-log.module';
 
-@Module({
+  @Module({
   imports: [
     AdminModule,
+    AdminLogModule,
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'SUPER_SECRET_KEY',
       signOptions: { expiresIn: '5m' },
