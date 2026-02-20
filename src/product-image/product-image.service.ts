@@ -29,13 +29,13 @@ export class ProductImageService {
       product: { id: dto.product_id },
     });
 
-    const imagesToSave: ProductImage[] = dto.image_urls.map((url) =>
+    const imagesToSave: ProductImage[] = dto.image_urls.map((url, index) =>
       this.repo.create({
         image_url: url,
+        sort_order: index,
         product,
       }),
     );
-
     return this.repo.save(imagesToSave);
   }
 

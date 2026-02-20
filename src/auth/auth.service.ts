@@ -50,6 +50,10 @@ export class AuthService {
     return {
         access_token: accessToken,
         expires_in: expiresIn,
-    };
+        user: {
+            id: admin.id,
+            username: admin.username,
+        },
+        };
     }
 }

@@ -21,28 +21,55 @@ private productRepository: Repository<Product>,
 private categoryRepository: Repository<Category>,
 ) {}
 
+private async generateUniqueProductId(): Promise<string> {
+  let productId: string;
+  let exists: Product | null;
+
+  do {
+    const random = Math.floor(100000 + Math.random() * 900000);
+    productId = `PRD-${random}`;
+
+    exists = await this.productRepository.findOne({
+      where: { product_id: productId },
+    });
+
+  } while (exists);
+
+  return productId;
+}   
+
 async createProduct(dto: CreateProductDto): Promise<Product> {
+  try {
+    console.log("CREATE DTO:", dto);
 
-const category = await this.categoryRepository.findOne({
-where: { id: dto.category_id },
-});
+    const category = await this.categoryRepository.findOne({
+      where: { id: dto.category_id },
+    });
 
-if (!category) {
-throw new NotFoundException('Category not found');
-}
+    if (!category) {
+      throw new NotFoundException('Category not found');
+    }
 
-const product = this.productRepository.create({
-...dto,
-category,
-});
+    const productId = await this.generateUniqueProductId();
 
-return this.productRepository.save(product);
+    const product = this.productRepository.create({
+      ...dto,
+      product_id: productId,
+      category,
+    });
+
+    return await this.productRepository.save(product);
+
+  } catch (error) {
+    console.error("CREATE PRODUCT ERROR:", error);
+    throw error;
+  }
 }
 
 async findAllProduct(query: any) {
 const {
 page = '1',
-limit = '10',
+limit = '20',
 search,
 category,
 sort,
@@ -58,7 +85,15 @@ const safePage = Number(page) < 1 ? 1 : Number(page);
 const qb = this.productRepository
 .createQueryBuilder('product')
 .leftJoinAndSelect('product.category', 'category')
-.leftJoinAndSelect('product.images', 'images');
+
+qb.addSelect((subQuery) => {
+  return subQuery
+    .select('pi.image_url')
+    .from('product_images', 'pi')
+    .where('pi.product_id = product.id')
+    .orderBy('pi.sort_order', 'ASC')
+    .limit(1);
+}, 'thumbnail_url');
 
 // ======================
 // DEFAULT LANDING FILTER
@@ -121,21 +156,28 @@ max_price: max_price ? Number(max_price) : null,
 // SORTING
 // ======================
 qb.addSelect(
-'product.price_normal - COALESCE(product.price_discount, 0)',
-'final_price_sort',
+  'product.price_normal - COALESCE(product.price_discount, 0)',
+  'final_price_sort',
 );
 
 if (sort === 'price_asc') {
-qb.orderBy('final_price_sort', 'ASC');
+  qb.orderBy('final_price_sort', 'ASC')
 } else if (sort === 'price_desc') {
-qb.orderBy('final_price_sort', 'DESC');
+  qb.orderBy('final_price_sort', 'DESC')
 } else {
-qb.orderBy('product.created_at', 'DESC');
+  qb.orderBy('product.created_at', 'DESC')
+    .addOrderBy('product.id', 'DESC')
 }
 
 qb.skip((safePage - 1) * safeLimit).take(safeLimit);
 
-const [data, total] = await qb.getManyAndCount();
+const { raw, entities } = await qb.getRawAndEntities();
+const total = await qb.getCount();
+
+const data = entities.map((product, index) => ({
+  ...product,
+  thumbnail_url: raw[index]?.thumbnail_url || null,
+}));
 
 return {
 data,
@@ -146,18 +188,22 @@ last_page: Math.ceil(total / safeLimit),
 }
 
 async findOneByParams(id: string): Promise<Product> {
-const product = await this.productRepository.findOne({
-where: { id },
-relations: ['category', 'images'],
-});
+  const product = await this.productRepository.findOne({
+    where: { id },
+    relations: ['category', 'images'],
+    order: {
+      images: {
+        sort_order: 'ASC',
+      },
+    },
+  });
 
-if (!product) {
-throw new NotFoundException('Product not found');
+  if (!product) {
+    throw new NotFoundException('Product not found');
+  }
+
+  return product;
 }
-
-return product;
-}
-
 async updateProductByParams(
 id: string,
 dto: UpdateProductDto,
@@ -193,4 +239,11 @@ return this.findAllProduct({
 is_active: 'true',
 });
 }
+
+async bulkDelete(ids: string[]): Promise<void> {
+  if (!ids.length) return;
+
+  await this.productRepository.delete(ids);
+}
+
 }

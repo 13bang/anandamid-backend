@@ -16,11 +16,7 @@ export class UpdateProductDto {
 
     @IsOptional()
     @IsString()
-    external_product_id?: string;
-
-    @IsOptional()
-    @IsString()
-    external_sku_id?: string;
+    sku_seller?: string;
 
     @IsOptional()
     @IsString()
@@ -45,19 +41,7 @@ export class UpdateProductDto {
 
     @IsOptional()
     @IsString()
-    sku_code?: string;
-
-    @IsOptional()
-    @IsString()
     warranty?: string;
-
-    @IsOptional()
-    @IsString()
-    url_tiktok?: string;
-
-    @IsOptional()
-    @IsString()
-    url_tokped?: string;
 
     @IsOptional()
     @IsBoolean()

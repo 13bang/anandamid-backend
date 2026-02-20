@@ -103,7 +103,6 @@ for _, row in df.iterrows():
 
     records.append((
         row["ID Produk"],                           # product_id
-        row["ID SKU"],                              # sku_id
         row["Nama Produk"],                         # name
         row["description_clean"],                   # description
         row["Harga Ritel (Mata Uang Lokal)"],       # price_normal
@@ -111,8 +110,6 @@ for _, row in df.iterrows():
         row["Kuantitas"],                           # stock
         row["SKU Penjual"],                         # sku_seller
         row["Jenis Garansi"],                       # warranty
-        clean_url(row["Tautan (TikTok Shop)"]),
-        clean_url(row["Tautan (Tokopedia)"]),# url_tokped
         category_id                                 # FK category_id
     ))
 
@@ -122,7 +119,6 @@ for _, row in df.iterrows():
 insert_query = """
 INSERT INTO products (
     product_id,
-    sku_id,
     name,
     description,
     price_normal,
@@ -130,8 +126,6 @@ INSERT INTO products (
     stock,
     sku_seller,
     warranty,
-    url_tiktok,
-    url_tokped,
     category_id
 )
 VALUES %s
@@ -169,9 +163,10 @@ image_records = []
 for _, row in df.iterrows():
 
     product_uuid = product_map.get(row["ID Produk"])
-
     if not product_uuid:
-        continue  # product tidak ada (mungkin conflict skip)
+        continue
+
+    sort_index = 0
 
     for col in image_columns:
         if col in df.columns:
@@ -179,19 +174,19 @@ for _, row in df.iterrows():
 
             if pd.notna(image_url):
                 image_url = str(image_url).strip()
-
                 if image_url != "":
                     image_records.append((
                         image_url,
-                        product_uuid
+                        product_uuid,
+                        sort_index
                     ))
-
+                    sort_index += 1 
 # ==============================
 # INSERT PRODUCT IMAGES
 # ==============================
 if image_records:
     insert_images_query = """
-    INSERT INTO product_images (image_url, product_id)
+    INSERT INTO product_images (image_url, product_id, sort_order)
     VALUES %s
     ON CONFLICT DO NOTHING;
     """

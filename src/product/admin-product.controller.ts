@@ -19,8 +19,8 @@ import { findOneParams } from './dto/find-one.params';
 import { Product } from './entities/product.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt.guards';
 
-@Controller('admin/products') // ⬅️ UBAH DISINI
-@UseGuards(JwtAuthGuard)      // ⬅️ GUARD SEKALI DI ATAS
+@Controller('admin/products') 
+@UseGuards(JwtAuthGuard)      
 export class AdminProductController {
   constructor(private readonly productService: ProductService) {}
 
@@ -47,9 +47,16 @@ export class AdminProductController {
     return this.productService.updateProductByParams(params.id, dto);
   }
 
+  @Delete('bulk')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async bulkDelete(@Body() body: { ids: string[] }) {
+    await this.productService.bulkDelete(body.ids);
+  }
+
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async delete(@Param() params: findOneParams): Promise<void> {
     await this.productService.deleteProductByParams(params.id);
   }
+
 }

@@ -27,14 +27,12 @@ export class Product {
     })
     product_id: string;
 
-    @Column({ type: 'varchar', length: 100, nullable: true })
-    sku_id: string;
-
     @ManyToOne(() => Category, (category) => category.products, {
-        onDelete: 'RESTRICT'
+        onDelete: 'RESTRICT',
+        nullable: true,
     })
     @JoinColumn({ name: 'category_id' })
-    category: Category;
+    category: Category | null;
 
     @Column({ type: 'text' })
     name: string;
@@ -43,25 +41,19 @@ export class Product {
     description: string;
 
     @Column({ type: 'numeric', precision: 12, scale: 2 })
-    price_normal: number;
+    price_normal: number | null;
 
     @Column({ type: 'numeric', precision: 12, scale: 2, nullable: true })
-    price_discount: number;
+    price_discount: number | null;
 
     @Column({ type: 'integer', default: 0 })
-    stock: number;
+    stock: number | null;
 
     @Column({ type: 'varchar', length: 100, nullable: true })
     sku_seller: string;
 
     @Column({ type: 'varchar', length: 100, nullable: true })
     warranty: string;
-
-    @Column({ type: 'text', nullable: true })
-    url_tiktok: string;
-
-    @Column({ type: 'text', nullable: true })
-    url_tokped: string;
 
     @Column({ default: true })
     is_active: boolean;
@@ -83,7 +75,9 @@ export class Product {
     @UpdateDateColumn()
     updated_at: Date;
 
-    @OneToMany(() => ProductImage, (image) => image.product)
+    @OneToMany(() => ProductImage, (image) => image.product, {
+    cascade: true,
+    })
     images: ProductImage[];
 
 }

@@ -9,6 +9,7 @@ import { CategoryModule } from './category/category.module';
 import { ProductImageModule } from './product-image/product-image.module';
 import { AuthModule } from './auth/auth.module';
 import { AdminModule } from './admin/admin.module';
+import { ProductImportModule } from './product-import/product-import.module';
 
 @Module({
   imports: [ConfigModule.forRoot({
@@ -23,7 +24,8 @@ import { AdminModule } from './admin/admin.module';
   CategoryModule,
   ProductImageModule,
   AuthModule,
-  AdminModule], 
+  AdminModule,
+  ProductImportModule], 
   controllers: [AppController],
   providers: [AppService],
 })

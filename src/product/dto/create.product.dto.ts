@@ -9,6 +9,8 @@ import {
     Min
 } from "class-validator";
 
+import { Type } from 'class-transformer';
+
 export class CreateProductDto {
 
     @IsNotEmpty()
@@ -19,10 +21,6 @@ export class CreateProductDto {
     @IsString()
     product_id?: string;
 
-    @IsOptional()
-    @IsString()
-    sku_id?: string;
-
     @IsNotEmpty()
     @IsString()
     name: string;
@@ -32,33 +30,28 @@ export class CreateProductDto {
     description?: string;
 
     @IsNotEmpty()
+    @Type(() => Number)
     @IsNumber()
     price_normal: number;
 
     @IsOptional()
+     @Type(() => Number)
     @IsNumber()
     price_discount?: number;
 
     @IsOptional()
+     @Type(() => Number)
     @IsInt()
     @Min(0)
     stock?: number;
 
     @IsOptional()
     @IsString()
-    sku_code?: string;
+    sku_seller?: string;
 
     @IsOptional()
     @IsString()
     warranty?: string;
-
-    @IsOptional()
-    @IsString()
-    url_tiktok?: string;
-
-    @IsOptional()
-    @IsString()
-    url_tokped?: string;
 
     @IsOptional()
     @IsBoolean()
