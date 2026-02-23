@@ -11,8 +11,6 @@ import { Category } from '../category/entities/category.entity';
 import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import { ConflictException } from '@nestjs/common';
-
 @Injectable()
 export class ProductService {
 constructor(
