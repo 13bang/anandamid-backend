@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import * as XLSX from 'xlsx';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -9,110 +9,84 @@ import { randomUUID } from 'crypto';
 
 @Injectable()
 export class ProductImportService {
-    constructor(
-        @InjectRepository(Product)
-        private readonly productRepo: Repository<Product>,
-        
-        @InjectRepository(Category)
-        private readonly categoryRepo: Repository<Category>,
-        
-        @InjectRepository(ProductImage)
+  private readonly logger = new Logger(ProductImportService.name);
+
+  constructor(
+    @InjectRepository(Product)
+    private readonly productRepo: Repository<Product>,
+
+    @InjectRepository(Category)
+    private readonly categoryRepo: Repository<Category>,
+
+    @InjectRepository(ProductImage)
     private readonly productImageRepo: Repository<ProductImage>,
   ) {}
 
-  // =====================================================
-  // TEMPLATE (TIDAK DIUBAH)
-  // =====================================================
   async generateTemplate(): Promise<Buffer> {
     const headers = [
-    //   'product_id',
-      'name',
-      'description',
-      'price_normal',
-      'price_discount',
-      'stock',
-      'sku_seller',
-      'warranty',
-      'category_name',
-      'category_code',
-      'is_active',
-      'is_popular',
-      'image_1',
-      'image_2',
-      'image_3',
-      'image_4',
-      'image_5',
-      'image_6',
-      'image_7',
-      'image_8',
-      'image_9',
-      'image_10',
+      'name','description','price_normal','price_discount','stock','sku_seller',
+      'warranty','category_name','category_code','is_active','is_popular',
+      'image_1','image_2','image_3','image_4','image_5','image_6','image_7','image_8','image_9','image_10'
     ];
-    
+
     const exampleRow = [
-      '1731793882758546842',
-      'PRINTER CANON PIXMA G2010',
-      'Deskripsi produk disini...',
-      2125000,
-      100000,
-      48,
-      '1102127',
-      'Garansi Produsen',
-      'Printer & Scanner',
-      '830984',
-      true,
-      false,
-      'https://example.com/image1.jpg',
-      'https://example.com/image2.jpg',
-      '',
-      '',
-      '',
-      '',
-      '',
-      '',
-      '',
-      '',
+      'PRINTER CANON PIXMA G2010','Deskripsi produk disini...',2125000,100000,48,
+      '1102127','Garansi Produsen','Printer & Scanner','830984',true,false,
+      'https://example.com/image1.jpg','https://example.com/image2.jpg','','','','','','','','',''
     ];
 
     const worksheet = XLSX.utils.aoa_to_sheet([headers, exampleRow]);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Products');
 
-    return XLSX.write(workbook, {
-      type: 'buffer',
-      bookType: 'xlsx',
-    });
+    return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
   }
 
-  // =====================================================
-  // ✅ UPLOAD (INSERT SEMUA, SKU BOLEH DUPLIKAT)
-  // =====================================================
+  // UPLOAD PRODUCT
   async uploadProducts(buffer: Buffer) {
     const workbook = XLSX.read(buffer, { type: 'buffer' });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows: any[] = XLSX.utils.sheet_to_json(sheet);
 
-    const duplicateSkus: string[] = [];
     let totalCreated = 0;
 
-    for (const row of rows) {
-        const existingSku = await this.productRepo.findOne({
-        where: { sku_seller: row.sku_seller },
-        });
+    for (let idx = 0; idx < rows.length; idx++) {
+      const row = rows[idx];
+      try {
+        this.logger.log(`Upload row ${idx + 1}: SKU=${row.sku_seller}, Name=${row.name}`);
 
-        if (existingSku) {
-        duplicateSkus.push(row.sku_seller);
-        }
+        // Kategori by code
+        let category: Category | null = null;
 
-        const category = await this.categoryRepo.findOne({
-        where: { name: row.category_name },
-        });
+          if (row.category_code) {
+            category = await this.categoryRepo.findOne({
+              where: { code: row.category_code }
+            });
+
+            if (!category) {
+              // Kalau belum ada → create
+              category = this.categoryRepo.create({
+                code: row.category_code,
+                name: row.category_name
+              });
+              await this.categoryRepo.save(category);
+            } else {
+              // Kalau ada tapi nama beda → update
+              if (row.category_name && category.name !== row.category_name) {
+                category.name = row.category_name;
+                await this.categoryRepo.save(category);
+                this.logger.log(
+                  `Category updated: code=${category.code}, new_name=${category.name}`
+                );
+              }
+            }
+          }
 
         const product = new Product();
         product.product_id = randomUUID();
         product.name = row.name;
         product.description = row.description;
-        product.price_normal = Number(row.price_normal);
+        product.price_normal = Number(row.price_normal) || 0;
         product.price_discount = Number(row.price_discount) || 0;
         product.stock = Number(row.stock) || 0;
         product.sku_seller = row.sku_seller;
@@ -121,93 +95,110 @@ export class ProductImportService {
         product.is_popular = row.is_popular === true || row.is_popular === 'true';
         product.category = category ?? null;
 
-        const savedProduct = await this.productRepo.save(product) as Product;
+        const savedProduct = await this.productRepo.save(product);
 
-        // insert images
+        // Images
         for (let i = 1; i <= 10; i++) {
-        const imageUrl = row[`image_${i}`];
-        if (imageUrl) {
+          const imageUrl = row[`image_${i}`];
+          if (imageUrl) {
             await this.productImageRepo.save({
-            image_url: imageUrl,
-            sort_order: i,
-            product: savedProduct,
-            } as ProductImage);
-        }
+              product: savedProduct,
+              image_url: imageUrl,
+              sort_order: i
+            });
+          }
         }
 
         totalCreated++;
+      } catch (err) {
+        this.logger.error(`Error processing row ${idx + 1}: ${err.message}`, err.stack);
+      }
     }
 
-    return {
-        message: 'Upload selesai',
-        total_created: totalCreated,
-        duplicate_sku_detected: duplicateSkus,
-    };
-    }
-// =====================================================
-  // ✅ UPDATE (BERDASARKAN SKU SELLER)
-  // =====================================================
+    return { message: 'Upload selesai', total_created: totalCreated };
+  }
+
+  // UPDATE PRODUCT
   async updateProducts(buffer: Buffer) {
     const workbook = XLSX.read(buffer, { type: 'buffer' });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows: any[] = XLSX.utils.sheet_to_json(sheet);
 
-    const updated: string[] = [];
-    const notFound: string[] = [];
+    let totalUpdated = 0;
 
-    for (const row of rows) {
-      const product = await this.productRepo.findOne({
-        where: { sku_seller: String(row.sku_seller) },
-      });
+    for (let idx = 0; idx < rows.length; idx++) {
+      const row = rows[idx];
+      try {
+        this.logger.log(`Update row ${idx + 1}: SKU=${row.sku_seller}, Name=${row.name}`);
 
-      if (!product) {
-        notFound.push(row.sku_seller);
-        continue;
-      }
+        // Cek SKU
+        let product = await this.productRepo.findOne({ where: { sku_seller: row.sku_seller } });
 
-      const category = await this.categoryRepo.findOne({
-        where: { name: row.category_name },
-      });
+        // Kategori by code
+        let category: Category | null = null;
 
-      await this.productRepo.update(
-        { id: product.id },
-        {
-          product_id: String(row.product_id),
-          name: row.name,
-          description: row.description,
-          price_normal: Number(row.price_normal),
-          price_discount: row.price_discount ? Number(row.price_discount) : null,
-          stock: Number(row.stock) || 0,
-          warranty: row.warranty,
-          is_active: row.is_active === true || row.is_active === 'true',
-          is_popular: row.is_popular === true || row.is_popular === 'true',
-          category: category ?? null, 
-        },
-      );
+          if (row.category_code) {
+            category = await this.categoryRepo.findOne({
+              where: { code: row.category_code }
+            });
 
-      await this.productImageRepo.delete({ 
-        product: { id: product.id } 
-      } as any);
+            if (!category) {
+              // Kalau belum ada → create
+              category = this.categoryRepo.create({
+                code: row.category_code,
+                name: row.category_name
+              });
+              await this.categoryRepo.save(category);
+            } else {
+              // Kalau ada tapi nama beda → update
+              if (row.category_name && category.name !== row.category_name) {
+                category.name = row.category_name;
+                await this.categoryRepo.save(category);
+                this.logger.log(
+                  `Category updated: code=${category.code}, new_name=${category.name}`
+                );
+              }
+            }
+          }
 
-      // 5. Insert image baru
-      for (let i = 1; i <= 10; i++) {
-        const imageUrl = row[`image_${i}`];
-        if (imageUrl) {
-          await this.productImageRepo.save({
-            product: product,
-            image_url: imageUrl,
-            sort_order: i
-          });
+        if (!product) {
+          product = new Product();
+          product.product_id = randomUUID();
+          product.sku_seller = row.sku_seller;
         }
-      }
 
-      updated.push(row.sku_seller);
+        // Update fields
+        product.name = row.name;
+        product.description = row.description;
+        product.price_normal = Number(row.price_normal) || 0;
+        product.price_discount = Number(row.price_discount) || 0;
+        product.stock = Number(row.stock) || 0;
+        product.warranty = row.warranty;
+        product.is_active = row.is_active === true || row.is_active === 'true';
+        product.is_popular = row.is_popular === true || row.is_popular === 'true';
+        product.category = category ?? null;
+
+        const savedProduct = await this.productRepo.save(product);
+
+        // Images
+        await this.productImageRepo.delete({ product: { id: savedProduct.id } } as any);
+        for (let i = 1; i <= 10; i++) {
+          const imageUrl = row[`image_${i}`];
+          if (imageUrl) {
+            await this.productImageRepo.save({
+              product: savedProduct,
+              image_url: imageUrl,
+              sort_order: i
+            });
+          }
+        }
+
+        totalUpdated++;
+      } catch (err) {
+        this.logger.error(`Error processing row ${idx + 1}: ${err.message}`, err.stack);
+      }
     }
 
-    return {
-      message: 'Update selesai',
-      total_updated: updated.length,
-      not_found_sku: notFound,
-    };
+    return { message: 'Update selesai', total_updated: totalUpdated };
   }
 }

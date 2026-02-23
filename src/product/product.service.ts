@@ -11,6 +11,8 @@ import { Category } from '../category/entities/category.entity';
 import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 
+import { ConflictException } from '@nestjs/common';
+
 @Injectable()
 export class ProductService {
 constructor(
@@ -38,32 +40,69 @@ private async generateUniqueProductId(): Promise<string> {
   return productId;
 }   
 
-async createProduct(dto: CreateProductDto): Promise<Product> {
-  try {
-    console.log("CREATE DTO:", dto);
+async createProduct(dto: CreateProductDto) {
 
-    const category = await this.categoryRepository.findOne({
-      where: { id: dto.category_id },
-    });
+  const category = await this.categoryRepository.findOne({
+    where: { id: dto.category_id },
+  });
 
-    if (!category) {
-      throw new NotFoundException('Category not found');
-    }
-
-    const productId = await this.generateUniqueProductId();
-
-    const product = this.productRepository.create({
-      ...dto,
-      product_id: productId,
-      category,
-    });
-
-    return await this.productRepository.save(product);
-
-  } catch (error) {
-    console.error("CREATE PRODUCT ERROR:", error);
-    throw error;
+  if (!category) {
+    throw new NotFoundException('Category not found');
   }
+
+  // ======================
+  // CEK DUPLICATE (SEBELUM SAVE)
+  // ======================
+  const duplicateSku = dto.sku_seller
+    ? await this.productRepository.find({
+        where: { sku_seller: dto.sku_seller },
+      })
+    : [];
+
+  const duplicateName = dto.name
+    ? await this.productRepository.find({
+        where: { name: dto.name },
+      })
+    : [];
+
+  const duplicateMap = new Map();
+
+  [...duplicateSku, ...duplicateName].forEach((p) => {
+    duplicateMap.set(p.id, p);
+  });
+
+  const duplicates = Array.from(duplicateMap.values());
+
+  // ======================
+  // SAVE PRODUCT (TETAP DISIMPAN)
+  // ======================
+  const productId = await this.generateUniqueProductId();
+
+  const product = this.productRepository.create({
+    ...dto,
+    product_id: productId,
+    category,
+  });
+
+  const savedProduct = await this.productRepository.save(product);
+
+  // ======================
+  // RESPONSE DENGAN WARNING
+  // ======================
+  return {
+    product: savedProduct,
+    duplicate_warning: duplicates.length > 0
+      ? {
+          message: "Duplicate detected",
+          total: duplicates.length,
+          duplicates: duplicates.map(p => ({
+            id: p.id,
+            name: p.name,
+            sku_seller: p.sku_seller,
+          })),
+        }
+      : null,
+  };
 }
 
 async findAllProduct(query: any) {
@@ -77,10 +116,28 @@ is_popular,
 is_active,
 min_price,
 max_price,
+only_duplicate,
 } = query;
 
-const safeLimit = Number(limit) > 50 ? 50 : Number(limit);
+const safeLimit = Number(limit) > 100 ? 100 : Number(limit);
 const safePage = Number(page) < 1 ? 1 : Number(page);
+
+const duplicateTotalRaw = await this.productRepository.query(`
+  SELECT COUNT(*)
+  FROM products
+  WHERE sku_seller IS NOT NULL
+  AND sku_seller <> ''
+  AND sku_seller <> 'NaN'
+  AND sku_seller IN (
+    SELECT sku_seller
+    FROM products
+    WHERE sku_seller IS NOT NULL
+    AND sku_seller <> ''
+    AND sku_seller <> 'NaN'
+    GROUP BY sku_seller
+    HAVING COUNT(*) > 1
+  );
+`);
 
 const qb = this.productRepository
 .createQueryBuilder('product')
@@ -160,28 +217,81 @@ qb.addSelect(
   'final_price_sort',
 );
 
-if (sort === 'price_asc') {
-  qb.orderBy('final_price_sort', 'ASC')
-} else if (sort === 'price_desc') {
-  qb.orderBy('final_price_sort', 'DESC')
+qb.addSelect(`
+  CASE 
+    WHEN product.sku_seller IS NOT NULL
+    AND product.sku_seller <> ''
+    AND product.sku_seller <> 'NaN'
+    AND product.sku_seller IN (
+      SELECT sku_seller
+      FROM products
+      WHERE sku_seller IS NOT NULL
+      AND sku_seller <> ''
+      AND sku_seller <> 'NaN'
+      GROUP BY sku_seller
+      HAVING COUNT(*) > 1
+    )
+    THEN true
+    ELSE false
+  END
+`, 'is_duplicate_flag');
+
+// --- PERUBAHAN ADA DI SINI ---
+
+if (only_duplicate === 'true') {
+  // 1. Tambahkan kondisi Where untuk filter duplikat
+  qb.andWhere(`
+    product.sku_seller IS NOT NULL
+    AND product.sku_seller <> ''
+    AND product.sku_seller <> 'NaN'
+    AND product.sku_seller IN (
+      SELECT sku_seller
+      FROM products
+      WHERE sku_seller IS NOT NULL
+      AND sku_seller <> ''
+      AND sku_seller <> 'NaN'
+      GROUP BY sku_seller
+      HAVING COUNT(*) > 1
+    )
+  `);
+
+  // 2. Tentukan Sorting khusus saat mode duplicate
+  // Mengelompokkan SKU yang sama (agar berjejer), lalu diurutkan berdasarkan tanggal terbaru di dalam grup tersebut
+  qb.orderBy('product.sku_seller', 'ASC')
+    .addOrderBy('product.created_at', 'DESC');
+
 } else {
-  qb.orderBy('product.created_at', 'DESC')
-    .addOrderBy('product.id', 'DESC')
+  // Jika tidak mode duplicate, jalankan sorting normal (Price atau Terbaru)
+  if (sort === 'price_asc') {
+    qb.orderBy('final_price_sort', 'ASC');
+  } else if (sort === 'price_desc') {
+    qb.orderBy('final_price_sort', 'DESC');
+  } else {
+    qb.orderBy('product.created_at', 'DESC')
+      .addOrderBy('product.id', 'DESC');
+  }
 }
+
+const countQb = qb.clone();
 
 qb.skip((safePage - 1) * safeLimit).take(safeLimit);
 
 const { raw, entities } = await qb.getRawAndEntities();
-const total = await qb.getCount();
+const total = await countQb.getCount();
 
-const data = entities.map((product, index) => ({
-  ...product,
-  thumbnail_url: raw[index]?.thumbnail_url || null,
-}));
+const data = entities.map((product, index) => {
+  return {
+    ...product,
+    thumbnail_url: raw[index]?.thumbnail_url || null,
+    is_duplicate: raw[index]?.is_duplicate_flag === true,
+    duplicate_group: raw[index]?.is_duplicate_flag ? product.sku_seller : null,
+  };
+});
 
 return {
 data,
 total,
+duplicateTotal: Number(duplicateTotalRaw[0]?.count || 0),
 page: safePage,
 last_page: Math.ceil(total / safeLimit),
 };

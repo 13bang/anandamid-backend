@@ -10,6 +10,8 @@ import { ProductImageModule } from './product-image/product-image.module';
 import { AuthModule } from './auth/auth.module';
 import { AdminModule } from './admin/admin.module';
 import { ProductImportModule } from './product-import/product-import.module';
+import { PricelistModule } from './pricelist/pricelist.module';
+import { BannerImageModule } from './banner/banner.module';
 
 @Module({
   imports: [ConfigModule.forRoot({
@@ -25,7 +27,9 @@ import { ProductImportModule } from './product-import/product-import.module';
   ProductImageModule,
   AuthModule,
   AdminModule,
-  ProductImportModule], 
+  ProductImportModule,
+  PricelistModule,
+  BannerImageModule], 
   controllers: [AppController],
   providers: [AppService],
 })

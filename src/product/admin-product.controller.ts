@@ -18,6 +18,7 @@ import { UpdateProductDto } from './dto/update.product.dto';
 import { findOneParams } from './dto/find-one.params';
 import { Product } from './entities/product.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt.guards';
+import { CreateProductResponse } from '../../src/product/interface/product.interface';
 
 @Controller('admin/products') 
 @UseGuards(JwtAuthGuard)      
@@ -35,7 +36,9 @@ export class AdminProductController {
   }
 
   @Post()
-  async create(@Body() dto: CreateProductDto): Promise<Product> {
+  async create(
+    @Body() dto: CreateProductDto,
+  ): Promise<CreateProductResponse> {
     return this.productService.createProduct(dto);
   }
 

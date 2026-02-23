@@ -14,7 +14,7 @@ import { AdminLogModule } from '../admin-log/admin-log.module';
     AdminLogModule,
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'SUPER_SECRET_KEY',
-      signOptions: { expiresIn: '5m' },
+      signOptions: { expiresIn: '1h' },
     }),
   ],
   providers: [AuthService, JwtStrategy],

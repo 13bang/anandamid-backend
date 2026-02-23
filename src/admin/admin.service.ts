@@ -15,6 +15,20 @@ export class AdminService implements OnModuleInit {
     return this.repo.findOne({ where: { username } });
   }
 
+  // 1. Tambahkan Method untuk simpan hash Refresh Token
+  async updateRefreshToken(id: string, hashedRT: string | null) {
+    await this.repo.update(id, {
+      hashed_refresh_token: hashedRT,
+    });
+  }
+
+  async findByIdWithRT(id: string): Promise<Admin | null> {
+    return this.repo.findOne({
+      where: { id },
+      select: ['id', 'username', 'password', 'hashed_refresh_token'],
+    });
+  }
+
   // AUTO SEED
   async onModuleInit() {
     const username = 'admin';

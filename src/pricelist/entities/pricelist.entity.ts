@@ -2,27 +2,24 @@ import {
   Entity,
   Column,
   PrimaryGeneratedColumn,
+  UpdateDateColumn,
   CreateDateColumn,
 } from 'typeorm';
 
-@Entity('admin')
-export class Admin {
+@Entity('price_lists')
+export class PriceList {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
   @Column({ unique: true })
-  username: string;
+  type: string; 
 
   @Column()
-  password: string;
-
-  @Column({ 
-    type: 'text',
-    nullable: true, 
-    select: false 
-  })
-  hashed_refresh_token?: string | null;
+  file_path: string;
 
   @CreateDateColumn()
   created_at: Date;
+
+  @UpdateDateColumn()
+  updated_at: Date;
 }

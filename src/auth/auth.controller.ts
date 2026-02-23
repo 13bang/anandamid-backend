@@ -18,4 +18,12 @@ export class AuthController {
       req.headers['user-agent'],
     );
   }
+
+  @Post('refresh')
+  async refresh(
+    @Body() body: { id: string; refresh_token: string },
+  ) {
+    return this.authService.refresh(body.id, body.refresh_token);
+  }
+  
 }
