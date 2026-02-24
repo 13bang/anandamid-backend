@@ -37,9 +37,23 @@ export class BannerImageController {
       }),
     }),
   )
-  async upload(@UploadedFile() file: Express.Multer.File) {
+  async upload(
+    @UploadedFile() file: Express.Multer.File,
+    @Body('slot') slot: string,
+  ) {
+    console.log('FILE:', file);
+    console.log('SLOT:', slot);
+
+    if (!file) {
+      throw new Error('File tidak ditemukan');
+    }
+
+    if (!slot) {
+      throw new Error('Slot tidak terkirim');
+    }
+
     const imageUrl = `/uploads/banner/${file.filename}`;
-    return this.bannerService.create(imageUrl);
+    return this.bannerService.create(imageUrl, slot);
   }
 
   @Put(':id')
@@ -74,5 +88,18 @@ export class BannerImageController {
     @Body('title') title: string,
   ) {
     return this.bannerService.updateTitle(id, title);
+  }
+
+  @Get('slot/:slot')
+  async findBySlot(@Param('slot') slot: string) {
+    return this.bannerService.findBySlot(slot);
+  }
+
+  @Patch(':id/slot')
+  async updateSlot(
+    @Param('id') id: string,
+    @Body('slot') slot: string,
+  ) {
+    return this.bannerService.updateSlot(id, slot);
   }
 }

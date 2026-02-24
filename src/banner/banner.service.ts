@@ -24,8 +24,25 @@ export class BannerImageService {
     return banner;
   }
 
-  async create(image_url: string): Promise<BannerImage> {
-    const banner = this.bannerRepo.create({ image_url });
+  async create(image_url: string, slot: string): Promise<BannerImage> {
+    if (!slot || !slot.trim()) {
+      throw new Error('Slot wajib diisi');
+    }
+
+    const existing = await this.bannerRepo.findOne({
+      where: { slot },
+    });
+
+    if (existing) {
+      existing.image_url = image_url;
+      return this.bannerRepo.save(existing);
+    }
+
+    const banner = this.bannerRepo.create({
+      image_url,
+      slot,
+    });
+
     return this.bannerRepo.save(banner);
   }
 
@@ -44,6 +61,18 @@ export class BannerImageService {
     const banner = await this.findOne(id);
 
     banner.title = title;
+    return this.bannerRepo.save(banner);
+  }
+
+  async findBySlot(slot: string): Promise<BannerImage | null> {
+    return this.bannerRepo.findOne({
+      where: { slot },
+    });
+  }
+
+  async updateSlot(id: string, slot: string): Promise<BannerImage> {
+    const banner = await this.findOne(id);
+    banner.slot = slot.trim();
     return this.bannerRepo.save(banner);
   }
 }

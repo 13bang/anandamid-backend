@@ -17,6 +17,9 @@ export class BannerImage {
     @Column({ type: 'text' })
     image_url: string;
 
+    @Column({ type: 'varchar', nullable: true })
+    slot: string;
+
     @CreateDateColumn()
     created_at: Date;
 
