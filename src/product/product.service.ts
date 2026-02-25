@@ -109,6 +109,7 @@ page = '1',
 limit = '20',
 search,
 category,
+brand,
 sort,
 is_popular,
 is_active,
@@ -168,6 +169,15 @@ if (search) {
 qb.andWhere('LOWER(product.name) LIKE LOWER(:search)', {
 search: `%${search}%`,
 });
+}
+
+// ======================
+// BRAND FILTER (match anywhere in name)
+// ======================
+if (brand) {
+  qb.andWhere('LOWER(product.name) LIKE LOWER(:brand)', {
+    brand: `%${brand}%`,
+  });
 }
 
 // ======================
