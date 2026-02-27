@@ -8,7 +8,7 @@ import { UpdateProductDto } from './dto/update.product.dto';
 import { Product } from './entities/product.entity';
 import { Category } from '../category/entities/category.entity';
 
-import { Repository } from 'typeorm';
+import { Repository, Brackets } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 
 @Injectable()
@@ -37,6 +37,51 @@ private async generateUniqueProductId(): Promise<string> {
 
   return productId;
 }   
+
+private parseDescription(text: string) {
+  if (!text) {
+    return {
+      description_raw: '',
+      specifications: [],
+    };
+  }
+
+  // Ambil semua setelah kata Spesifikasi (case insensitive)
+  const match = text.match(/Spesifikasi\s*:?\s*([\s\S]*)/i);
+
+  if (!match) {
+    return {
+      description_raw: text,
+      specifications: [],
+    };
+  }
+
+  let specsText = match[1].trim();
+
+  // Normalisasi newline
+  specsText = specsText.replace(/\r\n/g, '\n');
+
+  // Split berdasarkan newline dulu
+  let specItems = specsText
+    .split('\n')
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  // Kalau ternyata cuma 1 baris panjang (tidak ada newline),
+  // coba pecah berdasarkan pola " KataBesar "
+  if (specItems.length <= 1) {
+    specItems = specsText
+      .replace(/([A-Z][a-zA-Z\s]+:)/g, '\n$1')
+      .split('\n')
+      .map(s => s.trim())
+      .filter(Boolean);
+  }
+
+  return {
+    description_raw: text,
+    specifications: specItems,
+  };
+}
 
 async createProduct(dto: CreateProductDto) {
 
@@ -172,12 +217,20 @@ search: `%${search}%`,
 }
 
 // ======================
-// BRAND FILTER (match anywhere in name)
+// BRAND FILTER (multi match anywhere in name)
 // ======================
 if (brand) {
-  qb.andWhere('LOWER(product.name) LIKE LOWER(:brand)', {
-    brand: `%${brand}%`,
-  });
+  const brands = brand.split(",");
+
+  qb.andWhere(
+    new Brackets((qb2) => {
+      brands.forEach((b, index) => {
+        qb2.orWhere(`LOWER(product.name) LIKE LOWER(:brand${index})`, {
+          [`brand${index}`]: `%${b}%`,
+        });
+      });
+    })
+  );
 }
 
 // ======================
@@ -204,17 +257,17 @@ is_popular: isPopularParsed,
 // PRICE RANGE FILTER
 // ======================
 if (min_price !== undefined || max_price !== undefined) {
-qb.andWhere(
-`
-(product.price_normal - COALESCE(product.price_discount, 0))
-BETWEEN COALESCE(:min_price, 0)
-AND COALESCE(:max_price, 999999999)
-`,
-{
-min_price: min_price ? Number(min_price) : null,
-max_price: max_price ? Number(max_price) : null,
-},
-);
+  qb.andWhere(
+    `
+    (product.price_normal - COALESCE(product.price_discount, 0))
+    BETWEEN COALESCE(:min_price, 0)
+    AND COALESCE(:max_price, 999999999)
+    `,
+    {
+      min_price: min_price ? Number(min_price) : null,
+      max_price: max_price ? Number(max_price) : null,
+    },
+  );
 }
 
 // ======================
@@ -244,10 +297,7 @@ qb.addSelect(`
   END
 `, 'is_duplicate_flag');
 
-// --- PERUBAHAN ADA DI SINI ---
-
 if (only_duplicate === 'true') {
-  // 1. Tambahkan kondisi Where untuk filter duplikat
   qb.andWhere(`
     product.sku_seller IS NOT NULL
     AND product.sku_seller <> ''
@@ -263,13 +313,10 @@ if (only_duplicate === 'true') {
     )
   `);
 
-  // 2. Tentukan Sorting khusus saat mode duplicate
-  // Mengelompokkan SKU yang sama (agar berjejer), lalu diurutkan berdasarkan tanggal terbaru di dalam grup tersebut
   qb.orderBy('product.sku_seller', 'ASC')
     .addOrderBy('product.created_at', 'DESC');
 
 } else {
-  // Jika tidak mode duplicate, jalankan sorting normal (Price atau Terbaru)
   if (sort === 'price_asc') {
     qb.orderBy('final_price_sort', 'ASC');
   } else if (sort === 'price_desc') {
@@ -288,11 +335,17 @@ const { raw, entities } = await qb.getRawAndEntities();
 const total = await countQb.getCount();
 
 const data = entities.map((product, index) => {
+  const parsed = this.parseDescription(product.description);
+
   return {
     ...product,
+    description_raw: parsed.description_raw,
+    specifications: parsed.specifications,
     thumbnail_url: raw[index]?.thumbnail_url || null,
     is_duplicate: raw[index]?.is_duplicate_flag === true,
-    duplicate_group: raw[index]?.is_duplicate_flag ? product.sku_seller : null,
+    duplicate_group: raw[index]?.is_duplicate_flag
+      ? product.sku_seller
+      : null,
   };
 });
 
@@ -305,7 +358,7 @@ last_page: Math.ceil(total / safeLimit),
 };
 }
 
-async findOneByParams(id: string): Promise<Product> {
+async findOneByParams(id: string): Promise<any> {
   const product = await this.productRepository.findOne({
     where: { id },
     relations: ['category', 'images'],
@@ -320,8 +373,14 @@ async findOneByParams(id: string): Promise<Product> {
     throw new NotFoundException('Product not found');
   }
 
-  return product;
+  const parsed = this.parseDescription(product.description);
+
+  return {
+    ...product,
+    ...parsed,
+  };
 }
+
 async updateProductByParams(
 id: string,
 dto: UpdateProductDto,

@@ -4,6 +4,11 @@ import re
 from psycopg2.extras import execute_values
 from bs4 import BeautifulSoup
 
+import os
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+file_path = os.path.join(BASE_DIR, "..", "excel", "tokopedia.xlsx")
+
 # ==============================
 # CONFIG DATABASE
 # ==============================
@@ -34,8 +39,23 @@ print(df.columns)
 def clean_html(text):
     if pd.isna(text):
         return None
+
     soup = BeautifulSoup(str(text), "html.parser")
-    return soup.get_text(separator=" ", strip=True)
+
+    # Ambil semua paragraf
+    paragraphs = []
+
+    for p in soup.find_all("p"):
+        content = p.get_text(strip=True)
+
+        # Skip paragraf kosong
+        if content:
+            paragraphs.append(content)
+
+    # Gabungkan pakai newline
+    clean_text = "\n".join(paragraphs)
+
+    return clean_text if clean_text else None
 
 # ==============================
 # PARSE CATEGORY CODE

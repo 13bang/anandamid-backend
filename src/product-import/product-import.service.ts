@@ -6,6 +6,7 @@ import { Product } from '../product/entities/product.entity';
 import { Category } from '../category/entities/category.entity';
 import { ProductImage } from '../product-image/entities/product-image.entity';
 import { randomUUID } from 'crypto';
+import { BadRequestException } from '@nestjs/common';
 
 @Injectable()
 export class ProductImportService {
@@ -49,38 +50,39 @@ export class ProductImportService {
     const rows: any[] = XLSX.utils.sheet_to_json(sheet);
 
     let totalCreated = 0;
+    const errors: string[] = [];
 
     for (let idx = 0; idx < rows.length; idx++) {
       const row = rows[idx];
+
       try {
-        this.logger.log(`Upload row ${idx + 1}: SKU=${row.sku_seller}, Name=${row.name}`);
+        this.logger.log(
+          `Upload row ${idx + 1}: SKU=${row.sku_seller}, Name=${row.name}`
+        );
 
-        // Kategori by code
-        let category: Category | null = null;
+        if (!row.category_code) {
+          throw new BadRequestException(`Row ${idx + 1}: Category code wajib diisi`);
+        }
 
-          if (row.category_code) {
-            category = await this.categoryRepo.findOne({
-              where: { code: row.category_code }
-            });
+        const category = await this.categoryRepo.findOne({
+          where: { code: row.category_code }
+        });
 
-            if (!category) {
-              // Kalau belum ada → create
-              category = this.categoryRepo.create({
-                code: row.category_code,
-                name: row.category_name
-              });
-              await this.categoryRepo.save(category);
-            } else {
-              // Kalau ada tapi nama beda → update
-              if (row.category_name && category.name !== row.category_name) {
-                category.name = row.category_name;
-                await this.categoryRepo.save(category);
-                this.logger.log(
-                  `Category updated: code=${category.code}, new_name=${category.name}`
-                );
-              }
-            }
-          }
+        if (!category) {
+          throw new BadRequestException(
+            `Row ${idx + 1}: Category code ${row.category_code} tidak ditemukan`
+          );
+        }
+
+        if (
+          row.category_name &&
+          category.name.trim().toLowerCase() !==
+            String(row.category_name).trim().toLowerCase()
+        ) {
+          throw new BadRequestException(
+            `Row ${idx + 1}: Category name tidak cocok untuk code ${row.category_code}`
+          );
+        }
 
         const product = new Product();
         product.product_id = randomUUID();
@@ -91,13 +93,14 @@ export class ProductImportService {
         product.stock = Number(row.stock) || 0;
         product.sku_seller = row.sku_seller;
         product.warranty = row.warranty;
-        product.is_active = row.is_active === true || row.is_active === 'true';
-        product.is_popular = row.is_popular === true || row.is_popular === 'true';
-        product.category = category ?? null;
+        product.is_active =
+          row.is_active === true || row.is_active === 'true';
+        product.is_popular =
+          row.is_popular === true || row.is_popular === 'true';
+        product.category = category;
 
         const savedProduct = await this.productRepo.save(product);
 
-        // Images
         for (let i = 1; i <= 10; i++) {
           const imageUrl = row[`image_${i}`];
           if (imageUrl) {
@@ -110,12 +113,23 @@ export class ProductImportService {
         }
 
         totalCreated++;
-      } catch (err) {
-        this.logger.error(`Error processing row ${idx + 1}: ${err.message}`, err.stack);
+      } catch (err: any) {
+        errors.push(err.message);
       }
     }
 
-    return { message: 'Upload selesai', total_created: totalCreated };
+    if (errors.length > 0) {
+      throw new BadRequestException({
+        message: 'Upload gagal',
+        total_error: errors.length,
+        errors,
+      });
+    }
+
+    return {
+      message: 'Upload selesai',
+      total_created: totalCreated,
+    };
   }
 
   // UPDATE PRODUCT
@@ -125,80 +139,98 @@ export class ProductImportService {
     const rows: any[] = XLSX.utils.sheet_to_json(sheet);
 
     let totalUpdated = 0;
+    const errors: string[] = [];
 
     for (let idx = 0; idx < rows.length; idx++) {
       const row = rows[idx];
+
       try {
-        this.logger.log(`Update row ${idx + 1}: SKU=${row.sku_seller}, Name=${row.name}`);
+        this.logger.log(
+          `Update row ${idx + 1}: SKU=${row.sku_seller}, Name=${row.name}`
+        );
 
-        // Cek SKU
-        let product = await this.productRepo.findOne({ where: { sku_seller: row.sku_seller } });
-
-        // Kategori by code
-        let category: Category | null = null;
-
-          if (row.category_code) {
-            category = await this.categoryRepo.findOne({
-              where: { code: row.category_code }
-            });
-
-            if (!category) {
-              // Kalau belum ada → create
-              category = this.categoryRepo.create({
-                code: row.category_code,
-                name: row.category_name
-              });
-              await this.categoryRepo.save(category);
-            } else {
-              // Kalau ada tapi nama beda → update
-              if (row.category_name && category.name !== row.category_name) {
-                category.name = row.category_name;
-                await this.categoryRepo.save(category);
-                this.logger.log(
-                  `Category updated: code=${category.code}, new_name=${category.name}`
-                );
-              }
-            }
-          }
-
-        if (!product) {
-          product = new Product();
-          product.product_id = randomUUID();
-          product.sku_seller = row.sku_seller;
+        // ===== STRICT CATEGORY =====
+        if (!row.category_code) {
+          throw new BadRequestException(`Row ${idx + 1}: Category code wajib diisi`);
         }
 
-        // Update fields
+        const category = await this.categoryRepo.findOne({
+          where: { code: row.category_code },
+        });
+
+        if (!category) {
+          throw new BadRequestException(
+            `Row ${idx + 1}: Category code ${row.category_code} tidak ditemukan`
+          );
+        }
+
+        if (
+          row.category_name &&
+          category.name.trim().toLowerCase() !==
+            String(row.category_name).trim().toLowerCase()
+        ) {
+          throw new BadRequestException(
+            `Row ${idx + 1}: Category name tidak cocok untuk code ${row.category_code}`
+          );
+        }
+
+        // ===== PRODUCT =====
+        let product = await this.productRepo.findOne({
+          where: { sku_seller: row.sku_seller },
+        });
+
+        if (!product) {
+          throw new BadRequestException(
+            `Row ${idx + 1}: Product dengan SKU ${row.sku_seller} tidak ditemukan`
+          );
+        }
+
         product.name = row.name;
         product.description = row.description;
         product.price_normal = Number(row.price_normal) || 0;
         product.price_discount = Number(row.price_discount) || 0;
         product.stock = Number(row.stock) || 0;
         product.warranty = row.warranty;
-        product.is_active = row.is_active === true || row.is_active === 'true';
-        product.is_popular = row.is_popular === true || row.is_popular === 'true';
-        product.category = category ?? null;
+        product.is_active =
+          row.is_active === true || row.is_active === 'true';
+        product.is_popular =
+          row.is_popular === true || row.is_popular === 'true';
+        product.category = category;
 
         const savedProduct = await this.productRepo.save(product);
 
-        // Images
-        await this.productImageRepo.delete({ product: { id: savedProduct.id } } as any);
+        await this.productImageRepo.delete({
+          product: { id: savedProduct.id },
+        } as any);
+
         for (let i = 1; i <= 10; i++) {
           const imageUrl = row[`image_${i}`];
           if (imageUrl) {
             await this.productImageRepo.save({
               product: savedProduct,
               image_url: imageUrl,
-              sort_order: i
+              sort_order: i,
             });
           }
         }
 
         totalUpdated++;
-      } catch (err) {
-        this.logger.error(`Error processing row ${idx + 1}: ${err.message}`, err.stack);
+      } catch (err: any) {
+        errors.push(err.message);
       }
     }
 
-    return { message: 'Update selesai', total_updated: totalUpdated };
+    if (errors.length > 0) {
+      throw new BadRequestException({
+        message: 'Update gagal',
+        total_error: errors.length,
+        errors,
+      });
+    }
+
+    return {
+      message: 'Update selesai',
+      total_updated: totalUpdated,
+    };
   }
 }

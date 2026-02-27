@@ -53,7 +53,7 @@ export class Product {
     sku_seller: string;
 
     @Column({ type: 'varchar', length: 100, nullable: true })
-    warranty: string;
+    warranty: string | null;
 
     @Column({ default: true })
     is_active: boolean;

@@ -15,7 +15,7 @@ export class Category {
     @PrimaryGeneratedColumn('uuid')
     id: string;
 
-    @Column({ length: 150 })
+    @Column({ length: 150, unique: true })
     name: string;
 
     @Column({ length: 50, unique: true })
