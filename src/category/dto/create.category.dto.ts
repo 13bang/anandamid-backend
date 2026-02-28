@@ -11,4 +11,8 @@ export class CreateCategoryDto {
     @IsString()
     @MaxLength(50)
     code: string;
+
+    @IsNotEmpty()
+    @IsString()
+    image_url?: string;     
 }

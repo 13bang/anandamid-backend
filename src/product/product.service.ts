@@ -46,40 +46,18 @@ private parseDescription(text: string) {
     };
   }
 
-  // Ambil semua setelah kata Spesifikasi (case insensitive)
-  const match = text.match(/Spesifikasi\s*:?\s*([\s\S]*)/i);
+  // normalisasi newline
+  const normalized = text.replace(/\r\n/g, '\n');
 
-  if (!match) {
-    return {
-      description_raw: text,
-      specifications: [],
-    };
-  }
-
-  let specsText = match[1].trim();
-
-  // Normalisasi newline
-  specsText = specsText.replace(/\r\n/g, '\n');
-
-  // Split berdasarkan newline dulu
-  let specItems = specsText
+  // split per baris
+  const lines = normalized
     .split('\n')
-    .map(s => s.trim())
-    .filter(Boolean);
-
-  // Kalau ternyata cuma 1 baris panjang (tidak ada newline),
-  // coba pecah berdasarkan pola " KataBesar "
-  if (specItems.length <= 1) {
-    specItems = specsText
-      .replace(/([A-Z][a-zA-Z\s]+:)/g, '\n$1')
-      .split('\n')
-      .map(s => s.trim())
-      .filter(Boolean);
-  }
+    .map(line => line.trim())
+    .filter(line => line !== '');
 
   return {
     description_raw: text,
-    specifications: specItems,
+    specifications: lines,
   };
 }
 

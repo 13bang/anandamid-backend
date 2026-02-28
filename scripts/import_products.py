@@ -34,28 +34,126 @@ df.columns = df.columns.str.strip()
 print(df.columns)
 
 # ==============================
+# MERGE BARIS YANG ADA ":" KOSONG
+# ==============================
+def merge_empty_colon_lines(lines):
+    result = []
+    i = 0
+
+    while i < len(lines):
+        current = lines[i].strip()
+
+        if current.endswith(":") and i + 1 < len(lines):
+            next_line = lines[i + 1].strip()
+
+            # dianggap heading kalau:
+            is_heading = (
+                next_line.isupper() or
+                next_line.endswith(":")
+            )
+
+            if not is_heading:
+                combined = f"{current} {next_line}"
+                result.append(combined)
+                i += 2
+                continue
+
+        result.append(current)
+        i += 1
+
+    return result
+
+# ==============================
+# MERGE KEY VALUE (BARIS BERURUTAN)
+# contoh:
+# Total Cores
+# 14
+# jadi:
+# Total Cores: 14
+# ==============================
+def merge_key_value_lines(lines):
+    result = []
+    i = 0
+
+    while i < len(lines):
+        current = lines[i].strip()
+
+        if i + 1 < len(lines):
+            next_line = lines[i + 1].strip()
+
+            # value dianggap valid kalau:
+            is_value = (
+                re.match(r"^[0-9]", next_line) or          # angka
+                next_line.lower() in ["yes", "no"] or     # yes/no
+                re.search(r"\d", next_line) or            # ada angka di dalam
+                "," in next_line                          # ada koma (list)
+            )
+
+            # current bukan heading kapital semua
+            is_current_heading = current.isupper()
+
+            if not current.endswith(":") and is_value and not is_current_heading:
+                combined = f"{current}: {next_line}"
+                result.append(combined)
+                i += 2
+                continue
+
+        result.append(current)
+        i += 1
+
+    return result
+
+# ==============================
 # CLEAN HTML DESCRIPTION
 # ==============================
 def clean_html(text):
     if pd.isna(text):
-        return None
+        return "-"
 
     soup = BeautifulSoup(str(text), "html.parser")
+    raw_text = soup.get_text(separator="\n")
 
-    # Ambil semua paragraf
-    paragraphs = []
+    raw_text = raw_text.replace("\r\n", "\n")
+    raw_text = raw_text.replace("\t", "\n")
 
-    for p in soup.find_all("p"):
-        content = p.get_text(strip=True)
+    # ==============================
+    # AMBIL BAGIAN SPESIFIKASI
+    # ==============================
+    match = re.search(
+        r"Spesifikasi\s*:?\s*(.*)",
+        raw_text,
+        re.IGNORECASE | re.DOTALL
+    )
 
-        # Skip paragraf kosong
-        if content:
-            paragraphs.append(content)
+    # 🔥 kalau tidak ada kata "Spesifikasi"
+    if not match:
+        return "-"
 
-    # Gabungkan pakai newline
-    clean_text = "\n".join(paragraphs)
+    raw_text = match.group(1)
 
-    return clean_text if clean_text else None
+    # ==============================
+    # CLEANING TAMBAHAN
+    # ==============================
+    raw_text = re.sub(
+        r"([A-Za-z0-9\)\(\/\.\- ]+)\s{2,}([A-Za-z0-9])",
+        r"\1\n\2",
+        raw_text
+    )
+
+    raw_text = re.sub(r"\n{2,}", "\n", raw_text)
+
+    lines = [
+        line.strip("•-* ").strip()
+        for line in raw_text.split("\n")
+        if line.strip()
+    ]
+
+    lines = merge_empty_colon_lines(lines)
+    lines = merge_key_value_lines(lines)
+
+    result = "\n".join(lines)
+
+    return result if result.strip() else "-"
 
 # ==============================
 # PARSE CATEGORY CODE

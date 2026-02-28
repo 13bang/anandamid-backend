@@ -11,4 +11,8 @@ export class UpdateCategoryDto {
     @IsString()
     @MaxLength(50)
     code?: string;
+
+    @IsOptional()
+    @IsString()
+    image_url?: string; 
 }
