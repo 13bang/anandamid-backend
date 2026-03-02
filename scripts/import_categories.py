@@ -1,6 +1,8 @@
 import pandas as pd
 import psycopg2
 from psycopg2.extras import execute_values
+import uuid
+import re
 
 # ==============================
 # CONFIG DATABASE
@@ -14,7 +16,7 @@ DB_CONFIG = {
 }
 
 # ==============================
-# CATEGORY RENAME MAPPING
+# CATEGORY RENAME MAPPING (CHILD)
 # ==============================
 CATEGORY_MAPPING = {
     "Graphic Card": "VGA / Graphic Card",
@@ -68,41 +70,136 @@ CATEGORY_MAPPING = {
 }
 
 # ==============================
+# PARENT STRUCTURE
+# ==============================
+PARENT_STRUCTURE = {
+    "Komputer & Laptop": [
+        "Laptop", "Desktop PC", "All-in-One PC"
+    ],
+    "Komponen PC": [
+        "Prosesor", "Motherboard", "RAM", "VGA / Graphic Card",
+        "Power Supply (PSU)", "Cooling (Fan & Heatsink)",
+        "Thermal Paste", "Casing PC"
+    ],
+    "Storage": [
+        "SSD", "Hard Disk (HDD)", "NAS",
+        "HDD Enclosure & Docking", "Optical Drive",
+        "Flashdisk & OTG", "Micro SD Card"
+    ],
+    "Networking": [
+        "Modem & Router", "Network Switch & PoE",
+        "WiFi Repeater", "WiFi Adapter & LAN Card",
+        "Powerline Adapter", "Kabel & Konektor LAN",
+        "KVM Switch"
+    ],
+    "Peripheral": [
+        "Monitor", "Keyboard & Mouse", "Mousepad",
+        "Webcam", "Sound Card", "Audio & Video Conference",
+        "Cooling Pad", "Stand & Alas Laptop"
+    ],
+    "Printer & Office": [
+        "Printer & Scanner", "Label Printer",
+        "Tinta & Toner", "Perlengkapan Kasir & Akuntansi",
+        "Aksesoris Presentasi", "Aksesoris Kantor"
+    ],
+    "Smart Device & Retail": [
+        "Smart Retail Device", "Barcode Scanner",
+        "Access Control & Attendance"
+    ],
+    "Software & Lisensi": [
+        "TV Tuner & Capture Card"
+    ]
+}
+
+def slugify(text):
+    return re.sub(r'[^a-z0-9]+', '-', text.lower()).strip('-')
+
+# ==============================
 # LOAD EXCEL
 # ==============================
 file_path = "../excel/tokopedia.xlsx"
 df = pd.read_excel(file_path)
+df.columns = df.columns.str.strip()
+
+def extract_category(value):
+    if pd.isna(value):
+        return None, None
+
+    match = re.match(r"^(.*)\s+\((\d+)\)$", str(value).strip())
+    if match:
+        return match.group(1).strip(), match.group(2).strip()
+
+    return None, None
+
+df[["raw_name", "code"]] = df["category"].apply(
+    lambda x: pd.Series(extract_category(x))
+)
+
+# rename pakai mapping
+df["name"] = df["raw_name"].map(CATEGORY_MAPPING)
+
+# drop yang tidak ada mapping
+df = df.dropna(subset=["name", "code"])
+
+# hapus duplicate berdasarkan code (lebih aman)
+df = df.drop_duplicates(subset=["code"])
 
 # ==============================
-# RENAME CATEGORY
-# ==============================
-df["name"] = df["name"].map(CATEGORY_MAPPING)
-
-# Hapus yang tidak ada mapping
-df = df.dropna(subset=["name"])
-
-# Hapus duplicate
-df = df.drop_duplicates(subset=["name"])
-
-# ==============================
-# INSERT TO POSTGRES
+# INSERT
 # ==============================
 conn = psycopg2.connect(**DB_CONFIG)
 cursor = conn.cursor()
 
-records = df[["name"]].to_records(index=False)
+# ==============================
+# TRUNCATE TABLE
+# ==============================
+cursor.execute("""
+    TRUNCATE TABLE categories RESTART IDENTITY CASCADE;
+""")
+print("Table categories berhasil di-truncate")
 
-insert_query = """
-    INSERT INTO categories (name)
-    VALUES %s
-    ON CONFLICT (name) DO NOTHING;
-"""
+# Insert Parent Categories
+parent_ids = {}
 
-execute_values(cursor, insert_query, records)
+for parent_name in PARENT_STRUCTURE.keys():
+    parent_id = str(uuid.uuid4())
+    parent_ids[parent_name] = parent_id
+
+    cursor.execute("""
+        INSERT INTO categories (id, name, code, code_slug, parent_id)
+        VALUES (%s, %s, %s, %s, NULL);
+    """, (
+        parent_id,
+        parent_name,
+        None,               
+        slugify(parent_name)
+    ))
+
+# Insert Child Categories
+for parent_name, children in PARENT_STRUCTURE.items():
+    parent_id = parent_ids[parent_name]
+
+    for child in children:
+        row = df[df["name"] == child]
+
+        if row.empty:
+            continue
+
+        excel_code = row.iloc[0]["code"]
+
+        cursor.execute("""
+            INSERT INTO categories (id, name, code, code_slug, parent_id)
+            VALUES (%s, %s, %s, %s, %s);
+        """, (
+            str(uuid.uuid4()),
+            child,
+            excel_code,           
+            slugify(child),         
+            parent_id
+        ))
 
 conn.commit()
 cursor.close()
 conn.close()
 
-print("Import categories selesai!")
-print(f"Total inserted: {len(df)}")
+print("Import categories dengan parent-child selesai!")

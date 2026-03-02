@@ -4,7 +4,10 @@ import {
     PrimaryGeneratedColumn,
     CreateDateColumn,
     UpdateDateColumn,
-    OneToMany
+    OneToMany,
+    ManyToOne,
+    JoinColumn,
+    Index
 } from "typeorm";
 
 import { Product } from "../../product/entities/product.entity";
@@ -18,11 +21,25 @@ export class Category {
     @Column({ length: 150, unique: true })
     name: string;
 
-    @Column({ length: 50, unique: true })
+    @Column({ length: 50, unique: true, nullable: true })
     code: string;
+
+    @Column({ length: 50, unique: true, nullable: true })
+    code_slug: string;
 
     @Column({ type: 'text', nullable: true })
     image_url: string | null;
+
+    @Index()
+    @ManyToOne(() => Category, (category) => category.children, {
+        nullable: true,
+        onDelete: 'SET NULL'
+    })
+    @JoinColumn({ name: 'parent_id' })
+    parent: Category | null;
+
+    @OneToMany(() => Category, (category) => category.parent)
+    children: Category[];
 
     @OneToMany(() => Product, (product) => product.category)
     products: Product[];
