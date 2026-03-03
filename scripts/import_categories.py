@@ -13,6 +13,7 @@ DB_CONFIG = {
     "user": "anandamid",
     "password": "Letmein99+",
     "port": 5432,
+    "sslmode": "disable",
 }
 
 # ==============================
@@ -165,14 +166,16 @@ for parent_name in PARENT_STRUCTURE.keys():
     parent_id = str(uuid.uuid4())
     parent_ids[parent_name] = parent_id
 
+    parent_slug = slugify(parent_name)
+
     cursor.execute("""
         INSERT INTO categories (id, name, code, code_slug, parent_id)
         VALUES (%s, %s, %s, %s, NULL);
     """, (
         parent_id,
         parent_name,
-        None,               
-        slugify(parent_name)
+        parent_slug,   # code = slug juga
+        parent_slug
     ))
 
 # Insert Child Categories

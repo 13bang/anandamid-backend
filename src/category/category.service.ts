@@ -39,20 +39,41 @@ export class CategoryService {
     return await this.categoryRepository.save(category);
   }
 
-  async findAllCategory() {
-    return await this.categoryRepository
-      .createQueryBuilder('category')
-      .leftJoin('category.products', 'product')
-      .select([
-        'category.id AS id',
-        'category.name AS name',
-        'category.code AS code',
-        'category.image_url AS image_url',
-      ])
-      .addSelect('COUNT(product.id)', 'total_products')
-      .groupBy('category.id')
-      .getRawMany();
-  }
+async findAllCategory() {
+  const categories = await this.categoryRepository
+    .createQueryBuilder('category')
+    .select([
+      'category.id AS id',
+      'category.name AS name',
+      'category.code AS code',
+      'category.image_url AS image_url',
+    ])
+    .addSelect(subQuery => {
+      return subQuery
+        .select('COUNT(product.id)', 'total')
+        .from(Product, 'product')
+        .leftJoin('product.category', 'cat')
+        .where('cat.id = category.id')
+        .orWhere(qb => {
+          const sub = qb
+            .subQuery()
+            .select('child.id')
+            .from(Category, 'child')
+            .where('child.parent_id = category.id')
+            .getQuery();
+          return 'cat.id IN ' + sub;
+        });
+    }, 'total_products')
+    .getRawMany();
+
+  return categories.map(cat => ({
+    id: cat.id,
+    name: cat.name,
+    code: cat.code,
+    image_url: cat.image_url,
+    total_products: Number(cat.total_products),
+  }));
+}
 
   async findOneCategory(id: string) {
     const category = await this.categoryRepository.findOne({
