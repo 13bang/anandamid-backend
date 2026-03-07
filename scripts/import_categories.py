@@ -23,7 +23,7 @@ CATEGORY_MAPPING = {
     "Graphic Card": "VGA / Graphic Card",
     "Laptop": "Laptop",
     "Komputer Desktop": "Desktop PC",
-    "Komputer All-in-One": "All-in-One PC",
+    "Komputer All-in-One": "PC AIO",
     "Motherboard": "Motherboard",
     "Prosesor": "Prosesor",
     "RAM": "RAM",
@@ -75,7 +75,7 @@ CATEGORY_MAPPING = {
 # ==============================
 PARENT_STRUCTURE = {
     "Komputer & Laptop": [
-        "Laptop", "Desktop PC", "All-in-One PC"
+        "Laptop", "Desktop PC", "PC AIO"
     ],
     "Komponen PC": [
         "Prosesor", "Motherboard", "RAM", "VGA / Graphic Card",
@@ -106,10 +106,10 @@ PARENT_STRUCTURE = {
     "Smart Device & Retail": [
         "Smart Retail Device", "Barcode Scanner",
         "Access Control & Attendance"
-    ],
-    "Software & Lisensi": [
-        "TV Tuner & Capture Card"
     ]
+    # "Software & Lisensi": [
+    #     "TV Tuner & Capture Card"
+    # ]
 }
 
 def slugify(text):
@@ -200,6 +200,30 @@ for parent_name, children in PARENT_STRUCTURE.items():
             slugify(child),         
             parent_id
         ))
+
+# ==============================
+# INSERT CATEGORIES TANPA PARENT
+# ==============================
+
+# Ambil semua child yang sudah dipakai di parent
+used_children = set()
+for children in PARENT_STRUCTURE.values():
+    for child in children:
+        used_children.add(child)
+
+# Ambil kategori yang tidak masuk parent
+remaining_categories = df[~df["name"].isin(used_children)]
+
+for _, row in remaining_categories.iterrows():
+    cursor.execute("""
+        INSERT INTO categories (id, name, code, code_slug, parent_id)
+        VALUES (%s, %s, %s, %s, NULL);
+    """, (
+        str(uuid.uuid4()),
+        row["name"],
+        row["code"],
+        slugify(row["name"]),
+    ))
 
 conn.commit()
 cursor.close()

@@ -3,6 +3,8 @@ import { ProductImageService } from './product-image.service';
 import { CreateProductImageDto } from './dto/create-product-image.dto';
 import { UpdateProductImageDto } from './dto/update-product-image.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt.guards';
+import { UseInterceptors, UploadedFile } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 
 @Controller('product-images')
 export class ProductImageController {
@@ -10,8 +12,12 @@ export class ProductImageController {
 
   @Post()
   @UseGuards(JwtAuthGuard)
-  create(@Body() dto: CreateProductImageDto) {
-    return this.productImageService.create(dto);
+  @UseInterceptors(FileInterceptor('file'))
+  create(
+    @UploadedFile() file: Express.Multer.File,
+    @Body('product_id') productId: string,
+  ) {
+    return this.productImageService.create(productId, file);
   }
 
   @Get()
@@ -26,11 +32,12 @@ export class ProductImageController {
 
   @Patch(':id')
   @UseGuards(JwtAuthGuard)
+  @UseInterceptors(FileInterceptor('file'))
   update(
     @Param('id') id: string,
-    @Body() dto: UpdateProductImageDto,
+    @UploadedFile() file: Express.Multer.File,
   ) {
-    return this.productImageService.update(id, dto);
+    return this.productImageService.update(id, file);
   }
 
   @Delete(':id')

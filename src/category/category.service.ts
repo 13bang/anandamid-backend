@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, IsNull } from 'typeorm';
 
 import { Category } from './entities/category.entity';
 import { Product } from '../product/entities/product.entity';
@@ -39,14 +39,15 @@ export class CategoryService {
     return await this.categoryRepository.save(category);
   }
 
-async findAllCategory() {
-  const categories = await this.categoryRepository
+  async findAllCategory() {
+    const categories = await this.categoryRepository
     .createQueryBuilder('category')
     .select([
       'category.id AS id',
       'category.name AS name',
       'category.code AS code',
       'category.image_url AS image_url',
+      'category.parent_id AS parent_id',
     ])
     .addSelect(subQuery => {
       return subQuery
@@ -64,6 +65,7 @@ async findAllCategory() {
           return 'cat.id IN ' + sub;
         });
     }, 'total_products')
+    .orderBy('category.name', 'ASC')
     .getRawMany();
 
   return categories.map(cat => ({
@@ -71,6 +73,7 @@ async findAllCategory() {
     name: cat.name,
     code: cat.code,
     image_url: cat.image_url,
+    parent_id: cat.parent_id,
     total_products: Number(cat.total_products),
   }));
 }
@@ -98,20 +101,83 @@ async findAllCategory() {
   }
 
   // Tambahkan | null agar sinkron dengan Controller
-  async updateCategory(id: string, dto: UpdateCategoryDto, imagePath?: string | null) {
-    const category = await this.categoryRepository.findOne({ where: { id } });
-    if (!category) throw new NotFoundException('Category not found');
+  async updateCategory(id: string, dto: UpdateCategoryDto, imagePath?: string) {
+    const category = await this.categoryRepository.findOneBy({ id });
+
+    if (!category) {
+      throw new NotFoundException('Category not found');
+    }
+
+    category.name = dto.name ?? category.name;
+    category.code = dto.code ?? category.code;
 
     if (imagePath) {
       category.image_url = imagePath;
     }
 
-    Object.assign(category, dto);
-    return await this.categoryRepository.save(category);
+    return this.categoryRepository.save(category);
   }
 
   async deleteCategory(id: string): Promise<void> {
     const result = await this.categoryRepository.delete(id);
     if (result.affected === 0) throw new NotFoundException('Category not found');
+  }
+
+  async findParentCategoriesWithChildren() {
+    const parents = await this.categoryRepository.find({
+      where: { parent: IsNull() },
+      relations: ['children'],
+      order: { name: 'ASC' },
+    });
+
+    const result: {
+      id: string;
+      name: string;
+      code: string | null;
+      image_url: string | null;
+      total_products: number;
+      children: {
+        id: string;
+        name: string;
+        code: string | null;
+        image_url: string | null;
+      }[];
+    }[] = [];
+
+    for (const parent of parents) {
+      // hitung total product dari parent + semua children
+      const total = await this.productRepository
+        .createQueryBuilder('product')
+        .leftJoin('product.category', 'category')
+        .where('category.id = :parentId', { parentId: parent.id })
+        .orWhere(qb => {
+          const sub = qb
+            .subQuery()
+            .select('child.id')
+            .from(Category, 'child')
+            .where('child.parent_id = :parentId')
+            .getQuery();
+
+          return 'category.id IN ' + sub;
+        })
+        .setParameter('parentId', parent.id)
+        .getCount();
+
+      result.push({
+        id: parent.id,
+        name: parent.name,
+        code: parent.code,
+        image_url: parent.image_url,
+        total_products: total,
+        children: parent.children?.map(child => ({
+          id: child.id,
+          name: child.name,
+          code: child.code,
+          image_url: child.image_url,
+        })) || [],
+      });
+    }
+
+    return result;
   }
 }

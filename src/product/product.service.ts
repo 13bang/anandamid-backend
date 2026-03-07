@@ -11,15 +11,34 @@ import { Category } from '../category/entities/category.entity';
 import { Repository, Brackets } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 
+import * as fs from 'fs';
+import * as path from 'path';
+import axios from 'axios';
+import sharp from 'sharp';
+
 @Injectable()
 export class ProductService {
-constructor(
-@InjectRepository(Product)
-private productRepository: Repository<Product>,
+private ensureDirectories() {
+  if (!fs.existsSync(this.originalPath)) {
+    fs.mkdirSync(this.originalPath, { recursive: true });
+  }
 
-@InjectRepository(Category)
-private categoryRepository: Repository<Category>,
+  if (!fs.existsSync(this.thumbPath)) {
+    fs.mkdirSync(this.thumbPath, { recursive: true });
+  }
+}
+
+constructor(
+  @InjectRepository(Product)
+  private productRepository: Repository<Product>,
+
+  @InjectRepository(Category)
+  private categoryRepository: Repository<Category>,
 ) {}
+
+private uploadBasePath = path.join(process.cwd(), 'uploads', 'products');
+private originalPath = path.join(this.uploadBasePath, 'original');
+private thumbPath = path.join(this.uploadBasePath, 'thumbnails');
 
 private async generateUniqueProductId(): Promise<string> {
   let productId: string;
@@ -59,6 +78,59 @@ private parseDescription(text: string) {
     description_raw: text,
     specifications: lines,
   };
+}
+
+private async downloadAndReplace(image: any) {
+  if (!image.image_url?.startsWith('http')) {
+    return;
+  }
+
+  this.ensureDirectories();
+
+  try {
+    const response = await axios.get(image.image_url, {
+      responseType: 'arraybuffer',
+      timeout: 15000,
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://www.tiktok.com/',
+        'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+      },
+    });
+
+    const ext = '.jpg'; // paksa jpg biar aman
+    const fileName = `${image.id}${ext}`;
+
+    const originalFile = path.join(this.originalPath, fileName);
+    const thumbFile = path.join(this.thumbPath, fileName);
+
+    fs.writeFileSync(originalFile, response.data);
+
+    await sharp(response.data)
+      .resize(300, 300, { fit: 'inside' })
+      .jpeg({ quality: 75 })
+      .toFile(thumbFile);
+
+    image.image_url = `/uploads/products/original/${fileName}`;
+    image.thumbnail_url = `/uploads/products/thumbnails/${fileName}`;
+
+    await this.productRepository.manager.save(image);
+
+    console.log('Download sukses:', fileName);
+
+  } catch (err: any) {
+    console.log('Status:', err.response?.status);
+    console.error('Download gagal:', image.image_url);
+  }
+}
+
+private async ensureImagesDownloaded(product: Product) {
+  if (!product.images?.length) return;
+
+  for (const img of product.images) {
+    await this.downloadAndReplace(img);
+  }
 }
 
 async createProduct(dto: CreateProductDto) {
@@ -132,6 +204,7 @@ page = '1',
 limit = '20',
 search,
 category,
+parent,
 brand,
 sort,
 is_popular,
@@ -165,14 +238,10 @@ const qb = this.productRepository
 .createQueryBuilder('product')
 .leftJoinAndSelect('product.category', 'category')
 
-qb.addSelect((subQuery) => {
-  return subQuery
-    .select('pi.image_url')
-    .from('product_images', 'pi')
-    .where('pi.product_id = product.id')
-    .orderBy('pi.sort_order', 'ASC')
-    .limit(1);
-}, 'thumbnail_url');
+qb.leftJoinAndSelect(
+  'product.images',
+  'images'
+);
 
 // ======================
 // DEFAULT LANDING FILTER
@@ -218,6 +287,27 @@ if (category) {
 qb.andWhere('LOWER(category.name) LIKE LOWER(:category)', {
 category: `%${category}%`,
 });
+}
+
+// ======================
+// PARENT CATEGORY FILTER
+// ======================
+if (parent) {
+  const parentCategory = await this.categoryRepository.findOne({
+    where: { code: parent },
+    relations: ['children'],
+  });
+
+  if (parentCategory) {
+    const categoryIds = parentCategory.children.map(c => c.id);
+
+    // kalau parent juga punya produk langsung
+    categoryIds.push(parentCategory.id);
+
+    qb.andWhere('category.id IN (:...categoryIds)', {
+      categoryIds,
+    });
+  }
 }
 
 // ======================
@@ -296,12 +386,21 @@ if (only_duplicate === 'true') {
 
 } else {
   if (sort === 'price_asc') {
-    qb.orderBy('final_price_sort', 'ASC');
+    qb.orderBy('product.stock', 'DESC')
+      .addOrderBy('final_price_sort', 'ASC')
+      .addOrderBy('product.price_discount', 'DESC')
+      .addOrderBy('product.created_at', 'DESC');
+
   } else if (sort === 'price_desc') {
-    qb.orderBy('final_price_sort', 'DESC');
+    qb.orderBy('product.stock', 'DESC')
+      .addOrderBy('final_price_sort', 'DESC')
+      .addOrderBy('product.price_discount', 'DESC')
+      .addOrderBy('product.created_at', 'DESC');
+
   } else {
-    qb.orderBy('product.created_at', 'DESC')
-      .addOrderBy('product.id', 'DESC');
+    qb.orderBy('product.stock', 'DESC')
+      .addOrderBy('product.price_discount', 'DESC')
+      .addOrderBy('product.created_at', 'DESC');
   }
 }
 
@@ -312,18 +411,25 @@ qb.skip((safePage - 1) * safeLimit).take(safeLimit);
 const { raw, entities } = await qb.getRawAndEntities();
 const total = await countQb.getCount();
 
-const data = entities.map((product, index) => {
+await Promise.all(
+  entities.map(product =>
+    this.ensureImagesDownloaded(product)
+  )
+);
+
+const data = entities.map((product) => {
   const parsed = this.parseDescription(product.description);
+
+  const thumbnail =
+    product.images?.find(img => img.sort_order === 0);
 
   return {
     ...product,
     description_raw: parsed.description_raw,
     specifications: parsed.specifications,
-    thumbnail_url: raw[index]?.thumbnail_url || null,
-    is_duplicate: raw[index]?.is_duplicate_flag === true,
-    duplicate_group: raw[index]?.is_duplicate_flag
-      ? product.sku_seller
-      : null,
+    thumbnail_url: thumbnail?.thumbnail_url || null,
+    is_duplicate: false,
+    duplicate_group: null,
   };
 });
 
@@ -351,6 +457,8 @@ async findOneByParams(id: string): Promise<any> {
     throw new NotFoundException('Product not found');
   }
 
+  await this.ensureImagesDownloaded(product);
+
   const parsed = this.parseDescription(product.description);
 
   return {
@@ -360,27 +468,30 @@ async findOneByParams(id: string): Promise<any> {
 }
 
 async updateProductByParams(
-id: string,
-dto: UpdateProductDto,
-): Promise<Product> {
+  id: string,
+  dto: UpdateProductDto,
+): Promise<any> {
 
-const product = await this.findOneByParams(id);
+  const product = await this.findOneByParams(id);
 
-if (dto.category_id) {
-const category = await this.categoryRepository.findOne({
-where: { id: dto.category_id },
-});
+  if (dto.category_id) {
+    const category = await this.categoryRepository.findOne({
+      where: { id: dto.category_id },
+    });
 
-if (!category) {
-throw new NotFoundException('Category not found');
-}
+    if (!category) {
+      throw new NotFoundException('Category not found');
+    }
 
-product.category = category;
-}
+    product.category = category;
+  }
 
-Object.assign(product, dto);
+  Object.assign(product, dto);
 
-return this.productRepository.save(product);
+  await this.productRepository.save(product);
+
+  // 🔥 RELOAD FULL DATA WITH RELATIONS
+  return this.findOneByParams(id);
 }
 
 async deleteProductByParams(id: string): Promise<void> {
