@@ -17,7 +17,7 @@ export class ProductImage {
   image_url: string;
 
   @Column({ type: 'text', nullable: true })
-  thumbnail_url: string;
+  thumbnail_url: string | null;
 
   @Column({ default: 0 })
   sort_order: number;
