@@ -20,7 +20,7 @@ DB_CONFIG = {
 # CATEGORY RENAME MAPPING (CHILD)
 # ==============================
 CATEGORY_MAPPING = {
-    "Graphic Card": "VGA / Graphic Card",
+    "Graphic Card": "VGA",
     "Laptop": "Laptop",
     "Komputer Desktop": "Desktop PC",
     "Komputer All-in-One": "PC AIO",
@@ -78,7 +78,7 @@ PARENT_STRUCTURE = {
         "Laptop", "Desktop PC", "PC AIO"
     ],
     "Komponen PC": [
-        "Prosesor", "Motherboard", "RAM", "VGA / Graphic Card",
+        "Prosesor", "Motherboard", "RAM", "VGA",
         "Power Supply (PSU)", "Cooling (Fan & Heatsink)",
         "Thermal Paste", "Casing PC"
     ],
@@ -215,14 +215,16 @@ for children in PARENT_STRUCTURE.values():
 remaining_categories = df[~df["name"].isin(used_children)]
 
 for _, row in remaining_categories.iterrows():
+    slug = slugify(row["name"])
+
     cursor.execute("""
         INSERT INTO categories (id, name, code, code_slug, parent_id)
         VALUES (%s, %s, %s, %s, NULL);
     """, (
         str(uuid.uuid4()),
         row["name"],
-        row["code"],
-        slugify(row["name"]),
+        row["code"],  
+        slug        
     ))
 
 conn.commit()

@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="UTF-8" />
+        <style>
+
+            body{
+                margin:0;
+                padding:0;
+            }
+
+            .certificate{
+                position:relative;
+                width:1123px;
+                height:794px;
+            }
+
+            .bg{
+                position:absolute;
+                width:100%;
+                height:100%;
+            }
+
+            .number{
+                position:absolute;
+                top:240px;
+                width:100%;
+                text-align:center;
+                font-size:22px;
+                font-weight:500;
+            }
+
+            .name{
+                position:absolute;
+                top:345px;
+                width:100%;
+                text-align:center;
+                font-size:42px;
+                font-weight:bold;
+            }
+
+            .qr{
+                position:absolute;
+                bottom:60px;
+                right:60px;
+                width:110px;
+            }
+
+        </style>
+    </head>
+
+    <body>
+
+        <div class="certificate">
+
+            <img src="{{template}}" class="bg"/>
+
+            <div class="number">
+                NOMOR : {{number}}
+            </div>
+
+            <div class="name">
+                {{name}}
+            </div>
+
+            <img src="{{qr}}" class="qr" />
+
+        </div>
+
+    </body>
+</html>

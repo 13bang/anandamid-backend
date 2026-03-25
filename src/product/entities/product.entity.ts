@@ -61,6 +61,12 @@ export class Product {
     @Column({ default: false })
     is_popular: boolean;
 
+    @Column({ type: 'int', default: 0 })
+    view_count: number;
+
+    @Column({ type: 'int', default: 0 })
+    search_count: number;
+
     @Expose()
     get final_price(): number {
         const normal = Number(this.price_normal);

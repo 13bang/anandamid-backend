@@ -8,13 +8,14 @@ import { UpdateProductDto } from './dto/update.product.dto';
 import { Product } from './entities/product.entity';
 import { Category } from '../category/entities/category.entity';
 
-import { Repository, Brackets } from 'typeorm';
+import { Repository, Brackets, In } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import * as fs from 'fs';
 import * as path from 'path';
 import axios from 'axios';
 import sharp from 'sharp';
+import crypto from "crypto";
 
 @Injectable()
 export class ProductService {
@@ -25,6 +26,16 @@ private ensureDirectories() {
 
   if (!fs.existsSync(this.thumbPath)) {
     fs.mkdirSync(this.thumbPath, { recursive: true });
+  }
+}
+
+private deleteFileIfExists(filePath?: string | null) {
+  if (!filePath) return;
+
+  const fullPath = path.join(process.cwd(), filePath);
+
+  if (fs.existsSync(fullPath)) {
+    fs.unlinkSync(fullPath);
   }
 }
 
@@ -80,8 +91,35 @@ private parseDescription(text: string) {
   };
 }
 
-private async downloadAndReplace(image: any) {
-  if (!image.image_url?.startsWith('http')) {
+private async downloadAndReplace(image: any, createThumb = false) {
+
+  const fileName = path.basename(image.image_url || "");
+  const originalFile = path.join(this.originalPath, fileName);
+  const thumbFile = path.join(this.thumbPath, fileName);
+
+  // 🔥 CASE 1: LOCAL IMAGE tapi thumbnail belum ada
+  if (
+    image.image_url?.startsWith("/uploads") &&
+    fs.existsSync(originalFile)
+  ) {
+
+    if (!fs.existsSync(thumbFile)) {
+
+      await sharp(originalFile)
+        .resize(300, 300, { fit: "inside" })
+        .jpeg({ quality: 75 })
+        .toFile(thumbFile);
+
+      console.log("Thumbnail regenerated:", fileName);
+    }
+
+    image.thumbnail_url = `/uploads/products/thumbnails/${fileName}`;
+
+    return;
+  }
+
+  // CASE 2: external image
+  if (!image.image_url?.startsWith("http")) {
     return;
   }
 
@@ -99,23 +137,49 @@ private async downloadAndReplace(image: any) {
       },
     });
 
-    const ext = '.jpg'; // paksa jpg biar aman
-    const fileName = `${image.id}${ext}`;
+    if (!response.data || response.data.length < 100) {
+      console.log("Invalid image:", image.image_url);
+      return;
+    }
+
+    const ext = ".jpg";
+
+    const hash = crypto
+      .createHash("md5")
+      .update(image.image_url)
+      .digest("hex");
+
+    const fileName = `${hash}${ext}`;
 
     const originalFile = path.join(this.originalPath, fileName);
     const thumbFile = path.join(this.thumbPath, fileName);
 
-    fs.writeFileSync(originalFile, response.data);
+    if (fs.existsSync(originalFile) && fs.existsSync(thumbFile)) {
 
-    await sharp(response.data)
-      .resize(300, 300, { fit: 'inside' })
-      .jpeg({ quality: 75 })
-      .toFile(thumbFile);
+      image.image_url = `/uploads/products/original/${fileName}`;
+      image.thumbnail_url = `/uploads/products/thumbnails/${fileName}`;
+
+      return;
+    }
+
+    await fs.promises.writeFile(originalFile, response.data);
+
+    if (createThumb) {
+      await sharp(response.data)
+        .resize(300, 300, { fit: 'inside' })
+        .jpeg({ quality: 75 })
+        .toFile(thumbFile);
+    }
 
     image.image_url = `/uploads/products/original/${fileName}`;
-    image.thumbnail_url = `/uploads/products/thumbnails/${fileName}`;
 
-    await this.productRepository.manager.save(image);
+    if (createThumb) {
+      image.thumbnail_url = `/uploads/products/thumbnails/${fileName}`;
+    } else {
+      image.thumbnail_url = null;
+    }
+
+    
 
     console.log('Download sukses:', fileName);
 
@@ -125,11 +189,14 @@ private async downloadAndReplace(image: any) {
   }
 }
 
-private async ensureImagesDownloaded(product: Product) {
+async ensureImagesDownloaded(product: Product) {
   if (!product.images?.length) return;
 
   for (const img of product.images) {
-    await this.downloadAndReplace(img);
+
+    const isMainImage = img.sort_order === 0;
+
+    await this.downloadAndReplace(img, isMainImage);
   }
 }
 
@@ -234,14 +301,24 @@ const duplicateTotalRaw = await this.productRepository.query(`
   );
 `);
 
+const duplicateTotal = Number(duplicateTotalRaw[0]?.count || 0);
+
 const qb = this.productRepository
 .createQueryBuilder('product')
 .leftJoinAndSelect('product.category', 'category')
 
-qb.leftJoinAndSelect(
+qb.leftJoin(
   'product.images',
-  'images'
+  'thumbnail',
+  'thumbnail.sort_order = 0'
 );
+
+qb.addSelect([
+  'thumbnail.image_url',
+  'thumbnail.thumbnail_url'
+]);
+
+qb.addOrderBy('thumbnail.sort_order', 'ASC');
 
 // ======================
 // DEFAULT LANDING FILTER
@@ -258,10 +335,22 @@ is_active: isActiveParsed,
 // SEARCH
 // ======================
 if (search) {
-qb.andWhere('LOWER(product.name) LIKE LOWER(:search)', {
-search: `%${search}%`,
-});
-}
+  qb.andWhere('LOWER(product.name) LIKE LOWER(:search)', {
+    search: `%${search}%`,
+  });
+
+  // 🔥 TRACK SEARCH
+  await this.productRepository
+    .createQueryBuilder()
+    .update(Product)
+    .set({
+      search_count: () => "search_count + 1",
+    })
+    .where("LOWER(name) LIKE LOWER(:search)", {
+      search: `%${search}%`,
+    })
+    .execute();
+  }
 
 // ======================
 // BRAND FILTER (multi match anywhere in name)
@@ -338,6 +427,8 @@ if (min_price !== undefined || max_price !== undefined) {
   );
 }
 
+const seed = Math.floor(Date.now() / 10000);
+
 // ======================
 // SORTING
 // ======================
@@ -365,7 +456,27 @@ qb.addSelect(`
   END
 `, 'is_duplicate_flag');
 
+qb.addSelect(
+  `CASE WHEN product.stock IS NULL OR product.stock <= 0 THEN 1 ELSE 0 END`,
+  'stock_order'
+);
+
+qb.addSelect(
+  `MOD(abs(hashtext(product.id::text)), :seed)`,
+  'random_order'
+);
+
+qb.addSelect(`
+  (
+    COALESCE(product.view_count, 0) * 0.7 +
+    COALESCE(product.search_count, 0) * 0.3
+  )
+`, "recommend_score");
+
+qb.setParameter('seed', seed);
+
 if (only_duplicate === 'true') {
+
   qb.andWhere(`
     product.sku_seller IS NOT NULL
     AND product.sku_seller <> ''
@@ -381,27 +492,54 @@ if (only_duplicate === 'true') {
     )
   `);
 
-  qb.orderBy('product.sku_seller', 'ASC')
+  qb.orderBy('stock_order', 'ASC')
+    .addOrderBy('product.sku_seller', 'ASC')
     .addOrderBy('product.created_at', 'DESC');
-
 } else {
-  if (sort === 'price_asc') {
-    qb.orderBy('product.stock', 'DESC')
-      .addOrderBy('final_price_sort', 'ASC')
-      .addOrderBy('product.price_discount', 'DESC')
+
+  qb.orderBy('stock_order', 'ASC');
+
+  if (sort === 'popular') {
+
+    qb.addOrderBy('product.is_popular', 'DESC')
+      .addOrderBy('product.stock', 'DESC')
       .addOrderBy('product.created_at', 'DESC');
 
-  } else if (sort === 'price_desc') {
-    qb.orderBy('product.stock', 'DESC')
-      .addOrderBy('final_price_sort', 'DESC')
-      .addOrderBy('product.price_discount', 'DESC')
+  } 
+
+  else if (sort === 'price_asc') {
+
+    qb.addOrderBy('final_price_sort', 'ASC')
+      .addOrderBy('product.stock', 'DESC')
       .addOrderBy('product.created_at', 'DESC');
 
-  } else {
-    qb.orderBy('product.stock', 'DESC')
-      .addOrderBy('product.price_discount', 'DESC')
-      .addOrderBy('product.created_at', 'DESC');
   }
+
+  else if (sort === 'price_desc') {
+
+    qb.addOrderBy('final_price_sort', 'DESC')
+      .addOrderBy('product.stock', 'DESC')
+      .addOrderBy('product.created_at', 'DESC');
+
+  }
+
+  else if (sort === 'newest') {
+
+    qb.addOrderBy('product.updated_at', 'DESC')
+      .addOrderBy('product.created_at', 'DESC');
+
+  }
+
+  else if (sort === 'recommend') {
+    qb.orderBy('stock_order', 'ASC')
+      .addOrderBy('random_order', 'ASC') 
+      .addOrderBy('recommend_score', 'DESC');
+  }
+
+  else {
+      qb.orderBy('stock_order', 'ASC')
+        .addOrderBy('random_order', 'ASC'); 
+    }
 }
 
 const countQb = qb.clone();
@@ -411,35 +549,37 @@ qb.skip((safePage - 1) * safeLimit).take(safeLimit);
 const { raw, entities } = await qb.getRawAndEntities();
 const total = await countQb.getCount();
 
-await Promise.all(
-  entities.map(product =>
-    this.ensureImagesDownloaded(product)
-  )
-);
+// await Promise.all(
+//   entities.map(product =>
+//     this.ensureImagesDownloaded(product)
+//   )
+// );
 
 const data = entities.map((product) => {
   const parsed = this.parseDescription(product.description);
 
-  const thumbnail =
-    product.images?.find(img => img.sort_order === 0);
+  const rawRow = raw.find(r => r.product_id === product.id);
 
   return {
     ...product,
     description_raw: parsed.description_raw,
     specifications: parsed.specifications,
-    thumbnail_url: thumbnail?.thumbnail_url || null,
-    is_duplicate: false,
-    duplicate_group: null,
+
+    is_duplicate:
+      rawRow?.is_duplicate_flag === true ||
+      rawRow?.is_duplicate_flag === 'true',
+
+    duplicate_group: product.sku_seller,
   };
 });
 
-return {
-data,
-total,
-duplicateTotal: Number(duplicateTotalRaw[0]?.count || 0),
-page: safePage,
-last_page: Math.ceil(total / safeLimit),
-};
+  return {
+    data,
+    total,
+    duplicateTotal,
+    page: safePage,
+    last_page: Math.ceil(total / safeLimit),
+  };
 }
 
 async findOneByParams(id: string): Promise<any> {
@@ -456,6 +596,12 @@ async findOneByParams(id: string): Promise<any> {
   if (!product) {
     throw new NotFoundException('Product not found');
   }
+
+  await this.productRepository.increment(
+    { id },
+    "view_count",
+    1
+  );
 
   await this.ensureImagesDownloaded(product);
 
@@ -495,8 +641,24 @@ async updateProductByParams(
 }
 
 async deleteProductByParams(id: string): Promise<void> {
-const product = await this.findOneByParams(id);
-await this.productRepository.remove(product);
+
+  const product = await this.productRepository.findOne({
+    where: { id },
+    relations: ['images'],
+  });
+
+  if (!product) {
+    throw new NotFoundException('Product not found');
+  }
+
+  for (const img of product.images) {
+
+    this.deleteFileIfExists(img.image_url);
+    this.deleteFileIfExists(img.thumbnail_url);
+
+  }
+
+  await this.productRepository.remove(product);
 }
 
 async findActiveProducts(query: any) {
@@ -507,9 +669,137 @@ is_active: 'true',
 }
 
 async bulkDelete(ids: string[]): Promise<void> {
+
   if (!ids.length) return;
 
+  const products = await this.productRepository.find({
+    where: { id: In(ids) }, 
+    relations: ['images'],
+  });
+
+  for (const product of products) {
+
+    for (const img of product.images) {
+
+      this.deleteFileIfExists(img.image_url);
+      this.deleteFileIfExists(img.thumbnail_url);
+
+    }
+
+  }
+
   await this.productRepository.delete(ids);
+}
+
+async processSingleImage(imageUrl: string, sortOrder: number = 0) {
+  if (!imageUrl) return null;
+
+  // dummy object biar reuse logic lama
+  const image: any = {
+    image_url: imageUrl,
+    sort_order: sortOrder,
+  };
+
+  await this.downloadAndReplace(image, sortOrder === 0);
+
+  return {
+    image_url: image.image_url,
+    thumbnail_url: image.thumbnail_url,
+  };
+}
+
+async getRecommendations(productId: string, limit = 10) {
+
+  const currentProduct = await this.productRepository.findOne({
+    where: { id: productId },
+    relations: ['category'],
+  });
+
+  if (!currentProduct) {
+    throw new NotFoundException('Product not found');
+  }
+
+  const seed = Math.floor(Date.now() / 10000);
+
+  const qb = this.productRepository
+    .createQueryBuilder('product')
+    .leftJoinAndSelect('product.category', 'category');
+
+  // ❌ jangan include produk itu sendiri
+  qb.where('product.id != :id', { id: productId });
+
+  // ======================
+  // 🔥 PRIORITAS 1: CATEGORY SAMA
+  // ======================
+  qb.addSelect(`
+    CASE 
+      WHEN product.category_id = :catId THEN 1
+      ELSE 0
+    END
+  `, 'same_category');
+
+  qb.setParameter('catId', currentProduct.category?.id || null);
+
+  // ======================
+  // 🔥 PRIORITAS 2: NAME MIRIP
+  // ======================
+  const name = currentProduct.name.split(" ").slice(0, 3).join(" ");
+
+  qb.addSelect(`
+    CASE 
+      WHEN LOWER(product.name) LIKE LOWER(:name) THEN 1
+      ELSE 0
+    END
+  `, 'similar_name');
+
+  qb.setParameter('name', `%${name}%`);
+
+  // ======================
+  // 🔥 SCORE GLOBAL (BIAR TETEP ADA TREND)
+  // ======================
+  qb.addSelect(`
+    (
+      COALESCE(product.view_count, 0) * 0.7 +
+      COALESCE(product.search_count, 0) * 0.3
+    )
+  `, 'recommend_score');
+
+  // ======================
+  // 🔥 RANDOM BIAR GA KAKU
+  // ======================
+  qb.addSelect(
+    `MOD(abs(hashtext(product.id::text)), :seed)`,
+    'random_order'
+  );
+
+  qb.addSelect(`
+      (
+        (CASE WHEN product.category_id = :catId THEN 1 ELSE 0 END) * 0.4 +
+        (CASE WHEN LOWER(product.name) LIKE LOWER(:name) THEN 1 ELSE 0 END) * 0.2 +
+      (
+        COALESCE(product.view_count, 0) * 0.7 +
+        COALESCE(product.search_count, 0) * 0.3
+      ) * 0.3 +
+      (RANDOM() * 0.2)
+    )
+  `, 'final_score');
+
+  qb.orderBy('final_score', 'DESC');
+
+  qb.setParameter('seed', seed);
+
+  // ======================
+  // SORTING FINAL
+  // ======================
+  // qb.orderBy('same_category', 'DESC')   
+  //   .addOrderBy('recommend_score', 'DESC')
+  //   .addOrderBy('random_order', 'ASC');   
+
+  qb.take(limit);
+
+  const { entities } = await qb.getRawAndEntities();
+
+  return entities;
 }
 
 }

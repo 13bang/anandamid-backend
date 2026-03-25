@@ -12,7 +12,7 @@ export class BannerImageService {
 
   async findAll(): Promise<BannerImage[]> {
     return this.bannerRepo.find({
-      order: { created_at: 'DESC' },
+      order: { created_at: 'ASC' },
     });
   }
 
@@ -29,18 +29,9 @@ export class BannerImageService {
       throw new Error('Slot wajib diisi');
     }
 
-    const existing = await this.bannerRepo.findOne({
-      where: { slot },
-    });
-
-    if (existing) {
-      existing.image_url = image_url;
-      return this.bannerRepo.save(existing);
-    }
-
     const banner = this.bannerRepo.create({
       image_url,
-      slot,
+      slot: slot.trim(),
     });
 
     return this.bannerRepo.save(banner);

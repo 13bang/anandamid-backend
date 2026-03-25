@@ -13,6 +13,7 @@ export class AuthService {
   ) {}
 
   async login(username: string, password: string, ip?: string, userAgent?: string) {
+
     const admin = await this.adminService.findByUsername(username);
 
     if (!admin || !(await bcrypt.compare(password, admin.password))) {
@@ -21,20 +22,23 @@ export class AuthService {
 
     const payload = { sub: admin.id, username: admin.username };
 
-    const accessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
-    
-    const refreshToken = this.jwtService.sign(payload, { expiresIn: '7d' });
+    const accessToken = this.jwtService.sign(payload, {
+      expiresIn: '1h',
+    });
 
-    const salt = await bcrypt.genSalt();
-    const hashedRT = await bcrypt.hash(refreshToken, salt);
-    
+    const refreshToken = this.jwtService.sign(payload, {
+      expiresIn: '7d',
+    });
+
+    const hashedRT = await bcrypt.hash(refreshToken, 10);
+
     await this.adminService.updateRefreshToken(admin.id, hashedRT);
 
     await this.adminLogService.logLogin(admin.id, ip, userAgent);
 
     return {
       access_token: accessToken,
-      refresh_token: refreshToken, 
+      refresh_token: refreshToken,
       expires_in: 3600,
       user: {
         id: admin.id,
@@ -43,26 +47,59 @@ export class AuthService {
     };
   }
 
-  // Fungsi baru untuk menukar Refresh Token dengan Access Token baru
-  async refresh(adminId: string, refreshToken: string) {
-    // Ambil admin beserta kolom hashed_refresh_token (karena defaultnya false)
-    const admin = await this.adminService.findByIdWithRT(adminId);
-    
-    if (!admin || !admin.hashed_refresh_token) {
-      throw new UnauthorizedException('Access Denied');
+  async refresh(refreshToken: string) {
+
+    try {
+
+      const payload = this.jwtService.verify(refreshToken);
+
+      const admin = await this.adminService.findByIdWithRT(payload.sub);
+
+      if (!admin || !admin.hashed_refresh_token) {
+        throw new UnauthorizedException('Access denied');
+      }
+
+      const match = await bcrypt.compare(
+        refreshToken,
+        admin.hashed_refresh_token
+      );
+
+      if (!match) {
+        throw new UnauthorizedException('Invalid refresh token');
+      }
+
+      const newPayload = { sub: admin.id, username: admin.username };
+
+      const newAccessToken = this.jwtService.sign(newPayload, {
+        expiresIn: '1h',
+      });
+
+      // ROTATE refresh token
+      const newRefreshToken = this.jwtService.sign(newPayload, {
+        expiresIn: '7d',
+      });
+
+      const hashedRT = await bcrypt.hash(newRefreshToken, 10);
+
+      await this.adminService.updateRefreshToken(admin.id, hashedRT);
+
+      return {
+        access_token: newAccessToken,
+        refresh_token: newRefreshToken,
+        expires_in: 3600,
+      };
+
+    } catch {
+      throw new UnauthorizedException('Invalid refresh token');
     }
+  }
 
-    // Bandingkan token yang dikirim dengan yang ada di DB
-    const isMatch = await bcrypt.compare(refreshToken, admin.hashed_refresh_token);
-    if (!isMatch) throw new UnauthorizedException('Invalid Refresh Token');
+  async logout(adminId: string) {
 
-    // Buat Access Token baru
-    const payload = { sub: admin.id, username: admin.username };
-    const newAccessToken = this.jwtService.sign(payload, { expiresIn: '1h' });
+    await this.adminService.updateRefreshToken(adminId, null);
 
     return {
-      access_token: newAccessToken,
-      expires_in: 3600
+      message: 'Logged out',
     };
   }
 }

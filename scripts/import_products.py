@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 import os
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-file_path = os.path.join(BASE_DIR, "..", "excel", "tokopedia.xlsx")
+file_path = os.path.join(BASE_DIR, "..", "excel", "import1.xlsx")
 
 # ==============================
 # CONFIG DATABASE
@@ -23,7 +23,7 @@ DB_CONFIG = {
 # ==============================
 # LOAD EXCEL
 # ==============================
-file_path = "../excel/tokopedia.xlsx"
+file_path = "../excel/import1.xlsx"
 df = pd.read_excel(
     file_path,
     sheet_name="Template",

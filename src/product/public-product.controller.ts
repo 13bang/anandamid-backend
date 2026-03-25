@@ -17,6 +17,11 @@ export class PublicProductController {
     return this.productService.findActiveProducts(query);
   }
 
+  @Get(':id/recommendations')
+  getRecommendations(@Param('id') id: string) {
+    return this.productService.getRecommendations(id);
+  }
+
   @Get(':id')
   async findOne(@Param('id') id: string) {
     const product = await this.productService.findOneByParams(id);

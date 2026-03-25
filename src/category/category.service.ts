@@ -100,7 +100,6 @@ export class CategoryService {
     };
   }
 
-  // Tambahkan | null agar sinkron dengan Controller
   async updateCategory(id: string, dto: UpdateCategoryDto, imagePath?: string) {
     const category = await this.categoryRepository.findOneBy({ id });
 

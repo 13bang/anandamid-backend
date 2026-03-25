@@ -13,5 +13,6 @@ import { PublicProductController } from './public-product.controller';
   ],
   controllers: [AdminProductController, PublicProductController],
   providers: [ProductService],
+  exports: [ProductService],
 })
 export class ProductModule {}

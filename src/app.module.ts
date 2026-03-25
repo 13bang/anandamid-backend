@@ -12,6 +12,7 @@ import { AdminModule } from './admin/admin.module';
 import { ProductImportModule } from './product-import/product-import.module';
 import { PricelistModule } from './pricelist/pricelist.module';
 import { BannerImageModule } from './banner/banner.module';
+import { CertificateModule } from './certificate/certificate.module';
 
 @Module({
   imports: [ConfigModule.forRoot({
@@ -29,7 +30,8 @@ import { BannerImageModule } from './banner/banner.module';
   AdminModule,
   ProductImportModule,
   PricelistModule,
-  BannerImageModule], 
+  BannerImageModule,
+  CertificateModule], 
   controllers: [AppController],
   providers: [AppService],
 })

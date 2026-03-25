@@ -30,6 +30,9 @@ export class Category {
     @Column({ type: 'text', nullable: true })
     image_url: string | null;
 
+    @Column({ type: 'uuid', nullable: true })
+    parent_id: string | null;
+
     @Index()
     @ManyToOne(() => Category, (category) => category.children, {
         nullable: true,

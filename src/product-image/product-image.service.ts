@@ -33,11 +33,26 @@ export class ProductImageService {
     }
   }
 
+  private deleteFileIfExists(filePath?: string | null) {
+    try {
+      if (!filePath) return;
+
+      const fullPath = path.join(process.cwd(), filePath);
+
+      if (fs.existsSync(fullPath)) {
+        fs.unlinkSync(fullPath);
+      }
+    } catch (err) {
+      console.error("Failed deleting file:", filePath);
+    }
+  }
+
   private async saveImage(buffer: Buffer, fileName: string) {
     const originalFile = path.join(this.originalPath, fileName);
     const thumbFile = path.join(this.thumbPath, fileName);
 
     await sharp(buffer)
+      .resize(2000, 2000, { fit: 'inside' })
       .jpeg({ quality: 90 })
       .toFile(originalFile);
 
@@ -79,7 +94,10 @@ export class ProductImageService {
 
     image.image_url = saved.original;
     image.thumbnail_url = thumbnailUrl;
-    image.sort_order = product.images?.length || 0;
+    image.sort_order =
+      product.images?.length
+        ? Math.max(...product.images.map(i => i.sort_order)) + 1
+        : 0;
     image.product = product;
 
     return this.repo.save(image);
@@ -117,22 +135,15 @@ export class ProductImageService {
     this.ensureDirectories();
 
     // hapus file lama
-    if (image.image_url) {
-      const oldOriginal = path.join(this.originalPath, path.basename(image.image_url));
-      if (fs.existsSync(oldOriginal)) fs.unlinkSync(oldOriginal);
-    }
-
-    if (image.thumbnail_url) {
-      const oldThumb = path.join(this.thumbPath, path.basename(image.thumbnail_url));
-      if (fs.existsSync(oldThumb)) fs.unlinkSync(oldThumb);
-    }
+    this.deleteFileIfExists(image.image_url);
+    this.deleteFileIfExists(image.thumbnail_url);
 
     const fileName = `${uuidv4()}.jpg`;
 
     const saved = await this.saveImage(file.buffer, fileName);
 
     const isFirstImage =
-      image.product.images
+      [...image.product.images]
         .sort((a, b) => a.sort_order - b.sort_order)[0]?.id === image.id;
 
     if (isFirstImage) {
@@ -142,6 +153,8 @@ export class ProductImageService {
         .toFile(saved.thumbFile);
 
       image.thumbnail_url = saved.thumb;
+    } else {
+      image.thumbnail_url = null;
     }
 
     image.image_url = saved.original;
@@ -150,6 +163,7 @@ export class ProductImageService {
   }
 
   async remove(id: string) {
+
     const image = await this.repo.findOne({
       where: { id },
       relations: ['product', 'product.images'],
@@ -157,15 +171,8 @@ export class ProductImageService {
 
     if (!image) throw new NotFoundException('Image not found');
 
-    if (image.image_url) {
-      const file = path.join(this.originalPath, path.basename(image.image_url));
-      if (fs.existsSync(file)) fs.unlinkSync(file);
-    }
-
-    if (image.thumbnail_url) {
-      const file = path.join(this.thumbPath, path.basename(image.thumbnail_url));
-      if (fs.existsSync(file)) fs.unlinkSync(file);
-    }
+    this.deleteFileIfExists(image.image_url);
+    this.deleteFileIfExists(image.thumbnail_url);
 
     return this.repo.remove(image);
   }
