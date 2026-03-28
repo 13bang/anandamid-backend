@@ -68,7 +68,7 @@ private async generateUniqueProductId(): Promise<string> {
   return productId;
 }   
 
-private parseDescription(text: string) {
+private parseDescription(text: string | null) {
   if (!text) {
     return {
       description_raw: '',
@@ -76,10 +76,8 @@ private parseDescription(text: string) {
     };
   }
 
-  // normalisasi newline
   const normalized = text.replace(/\r\n/g, '\n');
 
-  // split per baris
   const lines = normalized
     .split('\n')
     .map(line => line.trim())
@@ -192,11 +190,22 @@ private async downloadAndReplace(image: any, createThumb = false) {
 async ensureImagesDownloaded(product: Product) {
   if (!product.images?.length) return;
 
+  let updated = false;
+
   for (const img of product.images) {
+    const before = img.thumbnail_url;
 
     const isMainImage = img.sort_order === 0;
 
     await this.downloadAndReplace(img, isMainImage);
+
+    if (before !== img.thumbnail_url) {
+      updated = true;
+    }
+  }
+
+  if (updated) {
+    await this.productRepository.save(product);
   }
 }
 
