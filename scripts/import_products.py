@@ -6,8 +6,10 @@ from bs4 import BeautifulSoup
 import hashlib
 import os
 
+# BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# file_path = os.path.join(BASE_DIR, "..", "excel", "Tiktoksellercenter_batchedit_20260328_all_information_template_12.xlsx")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-file_path = os.path.join(BASE_DIR, "..", "excel", "tokopedia.xlsx")
+file_path = os.path.join(BASE_DIR, "..", "excel","excel2", "Tiktoksellercenter_batchedit_20260328_all_information_template_1.xlsx")
 
 # ==============================
 # CONFIG DATABASE
@@ -29,8 +31,31 @@ def parse_kategori_code(value):
     match = re.search(r"\((\d+)\)", str(value))
     return match.group(1) if match else None
 
+def parse_kategori_name(value):
+    if pd.isna(value):
+        return None
+    return re.sub(r"\s*\(\d+\)", "", str(value)).strip()
+
 def generate_product_id(name):
-    return hashlib.md5(name.encode()).hexdigest()[:12]
+    clean_name = (
+        str(name)
+        .strip()
+        .lower()
+        .replace("\xa0", " ") 
+    )
+    return hashlib.md5(clean_name.encode()).hexdigest()[:12]
+
+def safe_get(row, column):
+    if column not in row or pd.isna(row[column]):
+        return None
+    val = str(row[column]).strip()
+    return val if val else None
+
+def safe_numeric(val):
+    try:
+        return float(val)
+    except:
+        return None
 
 # ==============================
 # LOAD EXCEL
@@ -43,6 +68,12 @@ df = pd.read_excel(
 
 df.columns = df.columns.str.strip()
 print(df.columns)
+
+df = df[
+    df["Nama produk"].notna() &
+    (df["Nama produk"].astype(str).str.strip() != "") &
+    ~df["Nama produk"].astype(str).str.contains("Wajib|Opsional|Tambahkan|Example|Contoh", case=False)
+]
 
 # ==============================
 # CLEAN HTML DESCRIPTION
@@ -106,11 +137,12 @@ def clean_html(text):
 # ==============================
 # PREP DATA (WAJIB SEBELUM GROUPING)
 # ==============================
-df["category_code"] = df["Kategori"].apply(parse_kategori_code)
-df["description_clean"] = df["Deskripsi Produk"].apply(clean_html)
+# df["category_code"] = df["Kategori"].apply(parse_kategori_code)
+# df["category_name"] = df["Kategori"].apply(parse_kategori_name)
+df["description_clean"] = df["Deskripsi produk"].apply(clean_html)
 
 # DEBUG (optional tapi disarankan)
-print(df[["Kategori", "category_code"]].head(5))
+# print(df[["Kategori", "category_code"]].head(5))
 
 # ==============================
 # HANDLE VARIASI
@@ -123,7 +155,7 @@ df["Nilai Variasi"] = df["Nilai Variasi"].fillna("default").astype(str).str.stri
 grouped_products = {}
 
 for _, row in df.iterrows():
-    name = row["Nama Produk"]
+    name = row["Nama produk"]
 
     if name not in grouped_products:
         grouped_products[name] = {
@@ -144,16 +176,44 @@ for _, row in df.iterrows():
 conn = psycopg2.connect(**DB_CONFIG)
 cursor = conn.cursor()
 
-print("Menghapus data lama...")
-cursor.execute("TRUNCATE TABLE product_images RESTART IDENTITY CASCADE;")
-cursor.execute("TRUNCATE TABLE products RESTART IDENTITY CASCADE;")
-conn.commit()
-
 # ==============================
 # CATEGORY MAP
 # ==============================
-cursor.execute("SELECT id, code FROM categories;")
-category_map = {code: id for (id, code) in cursor.fetchall()}
+# cursor.execute("SELECT id, code FROM categories;")
+# category_map = {code: id for (id, code) in cursor.fetchall()}
+
+# ==============================
+# AUTO INSERT CATEGORY DARI EXCEL
+# ==============================
+# new_categories = []
+
+# for _, row in df.iterrows():
+#     code = row["category_code"]
+#     name = row["category_name"]
+
+#     if pd.isna(code) or not name:
+#         continue
+
+#     if code not in category_map:
+#         new_categories.append((name, code))
+
+# # remove duplicate
+# new_categories = list(set(new_categories))
+
+# if new_categories:
+#     print(f"Insert kategori baru: {len(new_categories)}")
+
+#     execute_values(cursor, """
+#         INSERT INTO categories (name, code)
+#         VALUES %s
+#         ON CONFLICT (code) DO NOTHING;
+#     """, new_categories)
+
+#     conn.commit()
+
+#     # reload category_map
+#     cursor.execute("SELECT id, code FROM categories;")
+#     category_map = {code: id for (id, code) in cursor.fetchall()}
 
 # ==============================
 # BUILD PRODUCT RECORDS
@@ -163,9 +223,7 @@ records = []
 for name, data in grouped_products.items():
     row = data["row"]
 
-    category_id = category_map.get(row["category_code"])
-    if not category_id:
-        continue
+    category_id = None
 
     variasi_list = [
         str(v).strip()
@@ -178,7 +236,8 @@ for name, data in grouped_products.items():
     product_id = generate_product_id(name)
 
     total_stock = sum(
-        int(r["Kuantitas"]) for r in data["rows"]
+        int(r["Kuantitas"])
+        for r in data["rows"]
         if pd.notna(r["Kuantitas"]) and str(r["Kuantitas"]).isdigit()
     )
 
@@ -186,11 +245,11 @@ for name, data in grouped_products.items():
         product_id,
         name,
         row["description_clean"],
-        row["Harga Ritel (Mata Uang Lokal)"],
+        safe_numeric(row["Harga Ritel (Mata Uang Lokal)"]),
         None,
         total_stock,
         row["SKU Penjual"],
-        row["Jenis Garansi"],
+        safe_get(row, "Jenis Garansi"),
         variasi_value,
         category_id
     ))
@@ -212,7 +271,16 @@ INSERT INTO products (
     category_id
 )
 VALUES %s
-ON CONFLICT (product_id) DO NOTHING;
+ON CONFLICT (product_id) DO UPDATE SET
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    price_normal = EXCLUDED.price_normal,
+    price_discount = EXCLUDED.price_discount,
+    stock = EXCLUDED.stock,
+    sku_seller = EXCLUDED.sku_seller,
+    warranty = EXCLUDED.warranty,
+    variasi = EXCLUDED.variasi,
+    category_id = EXCLUDED.category_id;
 """, records)
 
 # ==============================
@@ -221,13 +289,24 @@ ON CONFLICT (product_id) DO NOTHING;
 cursor.execute("SELECT id, product_id FROM products;")
 product_map = {pid: id for (id, pid) in cursor.fetchall()}
 
+print("Sample data gambar:")
+for col in df.columns:
+    if "gambar" in col.lower():
+        print(col, "=>", df[col].dropna().head(3).tolist())
+
 # ==============================
 # BUILD IMAGE RECORDS
 # ==============================
 image_columns = [
-    "Gambar Produk Utama","Gambar Produk 2","Gambar Produk 3",
-    "Gambar Produk 4","Gambar Produk 5","Gambar Produk 6",
-    "Gambar Produk 7","Gambar Produk 8","Gambar Produk 9"
+    ["Gambar Produk Utama", "Gambar utama"],
+    ["Gambar Produk 2", "Gambar 2"],
+    ["Gambar Produk 3", "Gambar 3"],
+    ["Gambar Produk 4", "Gambar 4"],
+    ["Gambar Produk 5", "Gambar 5"],
+    ["Gambar Produk 6", "Gambar 6"],
+    ["Gambar Produk 7", "Gambar 7"],
+    ["Gambar Produk 8"],
+    ["Gambar Produk 9"]
 ]
 
 image_records = []
@@ -241,15 +320,44 @@ for name, data in grouped_products.items():
 
     sort_index = 0
 
-    for row in data["rows"]:
-        for col in image_columns:
-            if col in df.columns:
-                val = row[col]
-                if pd.notna(val):
-                    url = str(val).strip()
-                    if url:
-                        image_records.append((url, product_uuid, sort_index))
-                        sort_index += 1
+    for row in data["rows"]:  
+        for col_options in image_columns:
+            val = None
+
+            for col in col_options:
+                if col in df.columns:
+                    temp = row[col]
+                    if pd.notna(temp) and str(temp).strip():
+                        val = temp
+                        break
+
+            if val is not None:
+                url = str(val).strip()
+
+                if (
+                    url.lower() == "nan"
+                    or "http" not in url
+                    or "Tambahkan" in url
+                    or "Wajib" in url
+                    or "Opsional" in url
+                ):
+                    continue
+
+                image_records.append((url, product_uuid, sort_index))
+                sort_index += 1
+
+# hapus gambar lama per product
+product_ids = [
+    product_map[generate_product_id(name)]
+    for name in grouped_products
+    if generate_product_id(name) in product_map
+]
+
+if product_ids:
+    cursor.execute("""
+        DELETE FROM product_images
+        WHERE product_id = ANY(%s::uuid[])
+    """, (product_ids,))
 
 # ==============================
 # INSERT IMAGES

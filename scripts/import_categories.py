@@ -106,7 +106,56 @@ PARENT_STRUCTURE = {
     "Smart Device & Retail": [
         "Smart Retail Device", "Barcode Scanner",
         "Access Control & Attendance"
+    ],
+    "Mobile & Gadget": [
+        "Ponsel", "Tablet", "Stilus",
+        "Holder & Dudukan Telepon",
+        "Charger & Adaptor Laptop",
+        "Pengisi Daya USB"
+    ],
+
+    "Audio & Video": [
+        "Speaker", "Earphone & Headphone",
+        "Amplifier & Mixer", "Mikrofon",
+        "Aksesoris Audio & Video"
+    ],
+
+    "Kamera & Security": [
+        "Kamera & Sistem Keamanan",
+        "Aksesoris Kamera",
+        "Perawatan Kamera",
+        "Drone & Aksesoris"
+    ],
+
+    "Gaming": [
+        "Joystick",
+        "Konsol Game Rumah",
+        "Aksesoris Konsol"
+    ],
+
+    "Elektronik Rumah": [
+        "Televisi",
+        "Suku Cadang & Aksesori Televisi",
+        "Bohlam, Tube & Strip",
+        "Catu Daya"
+    ],
+
+    "Peralatan & Hardware": [
+        "Tang",
+        "Kawat & Kabel",
+        "Capacitor"
+    ],
+
+    "Furniture": [
+        "Kursi",
+        "Meja & Desk"
+    ],
+
+    "Office & Retail Tambahan": [
+        "Penghitung Uang",
+        "Server Cetak"
     ]
+    
     # "Software & Lisensi": [
     #     "TV Tuner & Capture Card"
     # ]
