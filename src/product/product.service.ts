@@ -7,6 +7,7 @@ import { CreateProductDto } from './dto/create.product.dto';
 import { UpdateProductDto } from './dto/update.product.dto';
 import { Product } from './entities/product.entity';
 import { Category } from '../category/entities/category.entity';
+import { Brand } from 'src/brand/entities/brand.entity';
 
 import { Repository, Brackets, In } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -45,6 +46,9 @@ constructor(
 
   @InjectRepository(Category)
   private categoryRepository: Repository<Category>,
+
+  @InjectRepository(Brand)
+  private brandRepository: Repository<Brand>,
 ) {}
 
 private uploadBasePath = path.join(process.cwd(), 'uploads', 'products');
@@ -95,7 +99,6 @@ private async downloadAndReplace(image: any, createThumb = false) {
   const originalFile = path.join(this.originalPath, fileName);
   const thumbFile = path.join(this.thumbPath, fileName);
 
-  // 🔥 CASE 1: LOCAL IMAGE tapi thumbnail belum ada
   if (
     image.image_url?.startsWith("/uploads") &&
     fs.existsSync(originalFile)
@@ -219,6 +222,18 @@ async createProduct(dto: CreateProductDto) {
     throw new NotFoundException('Category not found');
   }
 
+  let brand: Brand | null = null;
+
+  if (dto.brand_id) {
+    brand = await this.brandRepository.findOne({
+      where: { id: dto.brand_id },
+    });
+
+    if (!brand) {
+      throw new NotFoundException('Brand not found');
+    }
+  }
+
   // ======================
   // CEK DUPLICATE (SEBELUM SAVE)
   // ======================
@@ -251,6 +266,7 @@ async createProduct(dto: CreateProductDto) {
     ...dto,
     product_id: productId,
     category,
+    brand, // 🔥 MASUKIN DI SINI
   });
 
   const savedProduct = await this.productRepository.save(product);
@@ -278,9 +294,9 @@ async findAllProduct(query: any) {
 const {
 page = '1',
 limit = '20',
+no_limit,
 search,
 category,
-parent,
 brand,
 sort,
 is_popular,
@@ -288,6 +304,8 @@ is_active,
 min_price,
 max_price,
 only_duplicate,
+category_ids,
+grouping,
 } = query;
 
 const safeLimit = Number(limit) > 100 ? 100 : Number(limit);
@@ -315,6 +333,7 @@ const duplicateTotal = Number(duplicateTotalRaw[0]?.count || 0);
 const qb = this.productRepository
 .createQueryBuilder('product')
 .leftJoinAndSelect('product.category', 'category')
+.leftJoinAndSelect('product.brand', 'brand')
 
 qb.leftJoin(
   'product.images',
@@ -348,7 +367,6 @@ if (search) {
     search: `%${search}%`,
   });
 
-  // 🔥 TRACK SEARCH
   await this.productRepository
     .createQueryBuilder()
     .update(Product)
@@ -362,50 +380,63 @@ if (search) {
   }
 
 // ======================
-// BRAND FILTER (multi match anywhere in name)
+// BRAND FILTER
 // ======================
 if (brand) {
-  const brands = brand.split(",");
+  const brandIds = brand.split(",");
 
-  qb.andWhere(
-    new Brackets((qb2) => {
-      brands.forEach((b, index) => {
-        qb2.orWhere(`LOWER(product.name) LIKE LOWER(:brand${index})`, {
-          [`brand${index}`]: `%${b}%`,
-        });
-      });
-    })
-  );
+  qb.andWhere("brand.id IN (:...brandIds)", {
+    brandIds,
+  });
 }
 
 // ======================
 // CATEGORY FILTER
 // ======================
 if (category) {
-qb.andWhere('LOWER(category.name) LIKE LOWER(:category)', {
-category: `%${category}%`,
-});
+  qb.andWhere(
+    new Brackets(qb2 => {
+      qb2.where('LOWER(category.name) LIKE LOWER(:category)', {
+        category: `%${category}%`,
+      }).orWhere('category.code = :categoryExact', {
+        categoryExact: category,
+      });
+    })
+  );
 }
 
 // ======================
-// PARENT CATEGORY FILTER
+// GROUPING FILTER
 // ======================
-if (parent) {
-  const parentCategory = await this.categoryRepository.findOne({
-    where: { code: parent },
-    relations: ['children'],
+if (grouping) {
+  const categories = await this.categoryRepository.find({
+    where: {
+      grouping: {
+        name: grouping, // bisa juga pakai id kalau mau lebih aman
+      },
+    },
+    select: ["id"],
   });
 
-  if (parentCategory) {
-    const categoryIds = parentCategory.children.map(c => c.id);
+  const ids = categories.map(c => c.id);
 
-    // kalau parent juga punya produk langsung
-    categoryIds.push(parentCategory.id);
-
-    qb.andWhere('category.id IN (:...categoryIds)', {
-      categoryIds,
-    });
+  // kalau kosong → paksa no result
+  if (!ids.length) {
+    qb.andWhere("1=0");
+  } else {
+    qb.andWhere("category.id IN (:...ids)", { ids });
   }
+}
+
+// ======================
+// CATEGORY IDS FILTER 
+// ======================
+if (category_ids) {
+  const ids = category_ids.split(",");
+
+  qb.andWhere("category.id IN (:...ids)", {
+    ids,
+  });
 }
 
 // ======================
@@ -553,7 +584,9 @@ if (only_duplicate === 'true') {
 
 const countQb = qb.clone();
 
-qb.skip((safePage - 1) * safeLimit).take(safeLimit);
+if (no_limit !== 'true') {
+  qb.skip((safePage - 1) * safeLimit).take(safeLimit);
+}
 
 const { raw, entities } = await qb.getRawAndEntities();
 const total = await countQb.getCount();
@@ -569,8 +602,15 @@ const data = entities.map((product) => {
 
   const rawRow = raw.find(r => r.product_id === product.id);
 
+  const finalPrice =
+    Number(product.price_normal || 0) -
+    Number(product.price_discount || 0);
+
   return {
     ...product,
+
+    final_price: finalPrice, 
+
     description_raw: parsed.description_raw,
     specifications: parsed.specifications,
 
@@ -587,14 +627,16 @@ const data = entities.map((product) => {
     total,
     duplicateTotal,
     page: safePage,
-    last_page: Math.ceil(total / safeLimit),
+    last_page: no_limit === 'true'
+      ? 1
+      : Math.ceil(total / safeLimit),
   };
 }
 
 async findOneByParams(id: string): Promise<any> {
   const product = await this.productRepository.findOne({
     where: { id },
-    relations: ['category', 'images'],
+    relations: ['category', 'images', 'brand'],
     order: {
       images: {
         sort_order: 'ASC',
@@ -628,6 +670,22 @@ async updateProductByParams(
 ): Promise<any> {
 
   const product = await this.findOneByParams(id);
+
+  if (dto.brand_id !== undefined) {
+    if (dto.brand_id === null) {
+      product.brand = null;
+    } else {
+      const brand = await this.brandRepository.findOne({
+        where: { id: dto.brand_id },
+      });
+
+      if (!brand) {
+        throw new NotFoundException('Brand not found');
+      }
+
+      product.brand = brand;
+    }
+  }
 
   if (dto.category_id) {
     const category = await this.categoryRepository.findOne({
@@ -732,9 +790,9 @@ async getRecommendations(productId: string, limit = 10) {
 
   const qb = this.productRepository
     .createQueryBuilder('product')
-    .leftJoinAndSelect('product.category', 'category');
+    .leftJoinAndSelect('product.category', 'category')
+    .leftJoinAndSelect('product.brand', 'brand') 
 
-  // ❌ jangan include produk itu sendiri
   qb.where('product.id != :id', { id: productId });
 
   // ======================
@@ -750,18 +808,16 @@ async getRecommendations(productId: string, limit = 10) {
   qb.setParameter('catId', currentProduct.category?.id || null);
 
   // ======================
-  // 🔥 PRIORITAS 2: NAME MIRIP
+  //  BRAND
   // ======================
-  const name = currentProduct.name.split(" ").slice(0, 3).join(" ");
-
   qb.addSelect(`
     CASE 
-      WHEN LOWER(product.name) LIKE LOWER(:name) THEN 1
+      WHEN product.brand_id = :brandId THEN 1
       ELSE 0
     END
-  `, 'similar_name');
+  `, 'same_brand');
 
-  qb.setParameter('name', `%${name}%`);
+  qb.setParameter('brandId', currentProduct.brand?.id || null);
 
   // ======================
   // 🔥 SCORE GLOBAL (BIAR TETEP ADA TREND)
@@ -774,24 +830,25 @@ async getRecommendations(productId: string, limit = 10) {
   `, 'recommend_score');
 
   // ======================
-  // 🔥 RANDOM BIAR GA KAKU
+  // RANDOM BIAR GA KAKU
   // ======================
   qb.addSelect(
     `MOD(abs(hashtext(product.id::text)), :seed)`,
     'random_order'
   );
 
-  qb.addSelect(`
-      (
-        (CASE WHEN product.category_id = :catId THEN 1 ELSE 0 END) * 0.4 +
-        (CASE WHEN LOWER(product.name) LIKE LOWER(:name) THEN 1 ELSE 0 END) * 0.2 +
-      (
-        COALESCE(product.view_count, 0) * 0.7 +
-        COALESCE(product.search_count, 0) * 0.3
-      ) * 0.3 +
-      (RANDOM() * 0.2)
-    )
-  `, 'final_score');
+qb.addSelect(`
+  (
+    (CASE WHEN product.brand_id = :brandId THEN 1 ELSE 0 END) * 0.5 +
+    (CASE WHEN product.category_id = :catId THEN 1 ELSE 0 END) * 0.3 +
+    (CASE WHEN LOWER(product.name) LIKE LOWER(:name) THEN 1 ELSE 0 END) * 0.1 +
+    (
+      COALESCE(product.view_count, 0) * 0.7 +
+      COALESCE(product.search_count, 0) * 0.3
+    ) * 0.2 +
+    (RANDOM() * 0.1)
+  )
+`, 'final_score');
 
   qb.orderBy('final_score', 'DESC');
 
@@ -809,6 +866,151 @@ async getRecommendations(productId: string, limit = 10) {
   const { entities } = await qb.getRawAndEntities();
 
   return entities;
+}
+
+async removeBrand(productId: string) {
+  const product = await this.productRepository.findOne({
+    where: { id: productId },
+  });
+
+  if (!product) {
+    throw new NotFoundException("Product not found");
+  }
+
+  product.brand = null;
+
+  await this.productRepository.save(product);
+
+  return { message: "Brand removed from product" };
+}
+
+async getCompatibilityBuilder(query: {
+  processor_id?: string;
+  motherboard_id?: string;
+  ram_id?: string;
+}) {
+  let requiredSocket: string | null = null;
+  let requiredRamType: string | null = null;
+
+  // ======================
+  // 🔥 AMBIL SEMUA SEKALIGUS (biar efisien)
+  // ======================
+  const [cpu, mobo, ram] = await Promise.all([
+    query.processor_id
+      ? this.productRepository.findOne({ where: { id: query.processor_id } })
+      : null,
+    query.motherboard_id
+      ? this.productRepository.findOne({ where: { id: query.motherboard_id } })
+      : null,
+    query.ram_id
+      ? this.productRepository.findOne({ where: { id: query.ram_id } })
+      : null,
+  ]);
+
+  // ======================
+  // 🔥 NORMALIZE (biar ga case-sensitive bug)
+  // ======================
+  const normalize = (val?: string | null) =>
+    val ? val.toLowerCase().trim() : null;
+
+  const cpuSocket = normalize(cpu?.socket_type);
+  const moboSocket = normalize(mobo?.socket_type);
+  const moboRam = normalize(mobo?.ram_type);
+  const ramType = normalize(ram?.ram_type);
+
+  // ======================
+  // 🔥 MERGE CONSTRAINT (INI KUNCI NYA)
+  // ======================
+
+  // SOCKET
+  if (cpuSocket) requiredSocket = cpuSocket;
+  if (moboSocket) requiredSocket = moboSocket;
+
+  // RAM
+  if (ramType) requiredRamType = ramType;
+  if (moboRam) requiredRamType = moboRam;
+
+  // ======================
+  // 🔥 (OPTIONAL) DETECT CONFLICT
+  // ======================
+  if (cpuSocket && moboSocket && cpuSocket !== moboSocket) {
+    return {
+      active_constraints: {
+        socket: "Tidak kompatibel",
+        ram_type: requiredRamType || "Belum ditentukan",
+      },
+      available_processors: [],
+      available_motherboards: [],
+      available_rams: [],
+    };
+  }
+
+  // ======================
+  // 🔍 QUERY PROCESSOR
+  // ======================
+  const cpuQuery = this.productRepository
+    .createQueryBuilder("product")
+    .leftJoinAndSelect("product.category", "category")
+    .where("LOWER(category.name) LIKE :cat", { cat: "%processor%" });
+
+  if (requiredSocket) {
+    cpuQuery.andWhere("LOWER(product.socket_type) = :socket", {
+      socket: requiredSocket,
+    });
+  }
+
+  const processors = await cpuQuery.getMany();
+
+  // ======================
+  // 🔍 QUERY MOTHERBOARD
+  // ======================
+  const moboQuery = this.productRepository
+    .createQueryBuilder("product")
+    .leftJoinAndSelect("product.category", "category")
+    .where("LOWER(category.name) LIKE :cat", { cat: "%motherboard%" });
+
+  if (requiredSocket) {
+    moboQuery.andWhere("LOWER(product.socket_type) = :socket", {
+      socket: requiredSocket,
+    });
+  }
+
+  if (requiredRamType) {
+    moboQuery.andWhere("LOWER(product.ram_type) = :ram", {
+      ram: requiredRamType,
+    });
+  }
+
+  const motherboards = await moboQuery.getMany();
+
+  // ======================
+  // 🔍 QUERY RAM
+  // ======================
+  const ramQuery = this.productRepository
+    .createQueryBuilder("product")
+    .leftJoinAndSelect("product.category", "category")
+    .where("LOWER(category.name) LIKE :cat", { cat: "%ram%" });
+
+  if (requiredRamType) {
+    ramQuery.andWhere("LOWER(product.ram_type) = :ram", {
+      ram: requiredRamType,
+    });
+  }
+
+  const rams = await ramQuery.getMany();
+
+  // ======================
+  // ✅ RESULT
+  // ======================
+  return {
+    active_constraints: {
+      socket: requiredSocket || "Semua Socket",
+      ram_type: requiredRamType || "Semua Tipe",
+    },
+    available_processors: processors,
+    available_motherboards: motherboards,
+    available_rams: rams,
+  };
 }
 
 }

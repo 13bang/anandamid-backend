@@ -60,4 +60,6 @@ export class CreateProductDto {
     @IsOptional()
     @IsBoolean()
     is_popular?: boolean;
+
+    brand_id?: string;
 }

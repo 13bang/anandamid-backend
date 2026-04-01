@@ -15,4 +15,5 @@ export class UpdateCategoryDto {
     @IsOptional()
     @IsString()
     image_url?: string; 
+
 }

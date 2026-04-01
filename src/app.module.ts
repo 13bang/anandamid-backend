@@ -13,6 +13,8 @@ import { ProductImportModule } from './product-import/product-import.module';
 import { PricelistModule } from './pricelist/pricelist.module';
 import { BannerImageModule } from './banner/banner.module';
 import { CertificateModule } from './certificate/certificate.module';
+import { GroupingModule } from './grouping/grouping.module';
+import { BrandModule } from './brand/brand.module';
 
 @Module({
   imports: [ConfigModule.forRoot({
@@ -31,7 +33,9 @@ import { CertificateModule } from './certificate/certificate.module';
   ProductImportModule,
   PricelistModule,
   BannerImageModule,
-  CertificateModule], 
+  CertificateModule,
+  GroupingModule,
+  BrandModule], 
   controllers: [AppController],
   providers: [AppService],
 })

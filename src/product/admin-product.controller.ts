@@ -10,6 +10,7 @@ import {
   Put,
   UseGuards,
   Query,
+  Patch,
 } from '@nestjs/common';
 
 import { ProductService } from './product.service';
@@ -60,6 +61,11 @@ export class AdminProductController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async delete(@Param() params: findOneParams): Promise<void> {
     await this.productService.deleteProductByParams(params.id);
+  }
+
+  @Patch(":id/remove-brand")
+  removeBrand(@Param("id") id: string) {
+    return this.productService.removeBrand(id);
   }
 
 }

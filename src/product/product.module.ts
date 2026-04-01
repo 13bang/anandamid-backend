@@ -6,10 +6,11 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ProductImage } from 'src/product-image/entities/product-image.entity';
 import { AdminProductController } from './admin-product.controller';
 import { PublicProductController } from './public-product.controller';
+import { Brand } from 'src/brand/entities/brand.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Product, Category, ProductImage]) 
+    TypeOrmModule.forFeature([Product, Category, ProductImage, Brand]) 
   ],
   controllers: [AdminProductController, PublicProductController],
   providers: [ProductService],

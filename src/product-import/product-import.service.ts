@@ -1,12 +1,12 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import * as XLSX from 'xlsx';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { Product } from '../product/entities/product.entity';
 import { Category } from '../category/entities/category.entity';
 import { ProductImage } from '../product-image/entities/product-image.entity';
+import { Brand } from '../brand/entities/brand.entity'; // Pastikan path ini sesuai dengan struktur folder Anda
 import { randomUUID } from 'crypto';
-import { BadRequestException } from '@nestjs/common';
 import { Subject } from 'rxjs';
 import { ProductService } from 'src/product/product.service';
 
@@ -28,56 +28,69 @@ export class ProductImportService {
     @InjectRepository(ProductImage)
     private readonly productImageRepo: Repository<ProductImage>,
 
+    @InjectRepository(Brand)
+    private readonly brandRepo: Repository<Brand>, // Inject Brand Repository
+
     private readonly productService: ProductService,
   ) {}
 
   async generateTemplate(): Promise<Buffer> {
-
+    // Tambahkan brand_name pada headers
     const headers = [
       'name','description','price_normal','price_discount','stock','sku_seller',
-      'warranty','category_name','category_code','is_active','is_popular',
+      'warranty','brand_name','category_name','category_code','is_active','is_popular',
       'image_1','image_2','image_3','image_4','image_5','image_6','image_7','image_8','image_9','image_10'
     ];
 
     const exampleRow = [
       'PRINTER CANON PIXMA G2010','Deskripsi produk disini...',2125000,100000,48,
-      '1102127','Garansi Produsen','Printer & Scanner','830984',true,false,
+      '1102127','Garansi Produsen','Canon','Printer & Scanner','830984',true,false,
       'https://example.com/image1.jpg','https://example.com/image2.jpg','','','','','','','','',''
     ];
 
     const productSheet = XLSX.utils.aoa_to_sheet([headers, exampleRow]);
 
     // ===== CATEGORY SHEET =====
-    const categories = await this.categoryRepo
-      .createQueryBuilder("category")
-      .leftJoin("category.parent", "parent")
-      .where("parent.id IS NOT NULL")
-      .orderBy("category.name", "ASC")
-      .getMany();
+    const categories = await this.categoryRepo.find({
+      order: { name: "ASC" }
+    });
 
     const categoryRows = [
       ["category_name", "category_code"],
       ...categories.map(c => [c.name, c.code])
     ];
-
     const categorySheet = XLSX.utils.aoa_to_sheet(categoryRows);
+
+    // ===== BRAND SHEET =====
+    const brands = await this.brandRepo.find({
+      order: { name: "ASC" }
+    });
+
+    const brandRows = [
+      ["brand_name"],
+      ...brands.map(b => [b.name])
+    ];
+    const brandSheet = XLSX.utils.aoa_to_sheet(brandRows);
 
     const workbook = XLSX.utils.book_new();
 
     XLSX.utils.book_append_sheet(workbook, productSheet, "Products");
     XLSX.utils.book_append_sheet(workbook, categorySheet, "Categories");
+    XLSX.utils.book_append_sheet(workbook, brandSheet, "Brands"); // Tambahkan sheet Brands ke Excel
 
     return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
   }
 
   // UPLOAD PRODUCT
   async uploadProducts(buffer: Buffer) {
-    
-
     const workbook = XLSX.read(buffer, { type: 'buffer' });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows: any[] = XLSX.utils.sheet_to_json(sheet);
     const totalRows = rows.length;
+
+    // Ambil semua brand dari DB untuk efisiensi pengecekan
+    const dbBrands = await this.brandRepo.find();
+    const brandMap = new Map(dbBrands.map(b => [b.name.trim().toLowerCase(), b]));
 
     let totalCreated = 0;
     const errors: string[] = [];
@@ -90,19 +103,12 @@ export class ProductImportService {
 
         if (idx % 50 === 0) { // kirim tiap 50 row supaya tidak spam SSE
           const msg = `Processing row ${idx + 1}`;
-
           this.logger.log(msg);
-
-          this.progress$.next({
-            message: msg,
-            percent
-          });
+          this.progress$.next({ message: msg, percent });
         }
 
         if (!row.sku_seller) {
-          throw new BadRequestException(
-            `Row ${idx + 1}: SKU seller wajib diisi`
-          );
+          throw new BadRequestException(`Row ${idx + 1}: SKU seller wajib diisi`);
         }
 
         if (!row.category_code) {
@@ -110,21 +116,8 @@ export class ProductImportService {
         }
 
         const category = await this.categoryRepo.findOne({
-          where: { code: row.category_code },
-          relations: ['parent']
+          where: { code: row.category_code }
         });
-
-        if (!category) {
-          throw new BadRequestException(
-            `Row ${idx + 1}: Category code ${row.category_code} tidak ditemukan`
-          );
-        }
-
-        if (!category.parent) {
-          throw new BadRequestException(
-            `Row ${idx + 1}: Category ${category.name} adalah parent category, gunakan child category`
-          );
-        }
 
         if (!category) {
           throw new BadRequestException(
@@ -142,6 +135,21 @@ export class ProductImportService {
           );
         }
 
+        // ===== VALIDASI BRAND =====
+        let productBrand: Brand | null = null;
+
+        if (row.brand_name) {
+          productBrand = brandMap.get(
+            String(row.brand_name).trim().toLowerCase()
+          ) || null;
+
+          if (!productBrand) {
+            throw new BadRequestException(
+              `Row ${idx + 1}: Brand dengan nama '${row.brand_name}' tidak ditemukan di database`
+            );
+          }
+        }
+
         const product = new Product();
         product.product_id = randomUUID();
         product.name = row.name;
@@ -151,11 +159,14 @@ export class ProductImportService {
         product.stock = Number(row.stock) || 0;
         product.sku_seller = row.sku_seller;
         product.warranty = row.warranty;
-        product.is_active =
-          row.is_active === true || row.is_active === 'true';
-        product.is_popular =
-          row.is_popular === true || row.is_popular === 'true';
+        product.is_active = row.is_active === true || row.is_active === 'true';
+        product.is_popular = row.is_popular === true || row.is_popular === 'true';
         product.category = category;
+        
+        // Assign brand ke relasi product jika ada
+        if (productBrand) {
+          product.brand = productBrand;
+        }
 
         const savedProduct = await this.productRepo.save(product);
 
@@ -163,9 +174,7 @@ export class ProductImportService {
           const imageUrl = row[`image_${i}`];
 
           if (imageUrl) {
-
-            const processed =
-              await this.productService.processSingleImage(imageUrl, i - 1);
+            const processed = await this.productService.processSingleImage(imageUrl, i - 1);
 
             await this.productImageRepo.save({
               product: savedProduct,
@@ -202,16 +211,16 @@ export class ProductImportService {
   }
 
   async generateUpdateTemplate(categoryCodes?: string[]): Promise<Buffer> {
-
     const headers = [
       'name','description','price_normal','price_discount','stock','sku_seller',
-      'warranty','category_name','category_code','is_active','is_popular',
+      'warranty','brand_name','category_name','category_code','is_active','is_popular',
       'image_1','image_2','image_3','image_4','image_5','image_6','image_7','image_8','image_9','image_10'
     ];
 
     const query = this.productRepo
       .createQueryBuilder("product")
       .leftJoinAndSelect("product.category", "category")
+      .leftJoinAndSelect("product.brand", "brand") // Pastikan relasi brand diikutkan
       .leftJoinAndSelect("product.images", "images")
       .orderBy("product.name", "ASC");
 
@@ -224,7 +233,6 @@ export class ProductImportService {
     const products = await query.getMany();
 
     const rows = products.map(product => {
-
       const images = Array(10).fill("");
 
       if (product.images?.length) {
@@ -244,6 +252,8 @@ export class ProductImportService {
         product.sku_seller,
         product.warranty,
 
+        product.brand?.name || '', // Mapping brand name ke dalam baris Excel
+
         product.category?.name,
         product.category?.code,
 
@@ -254,30 +264,27 @@ export class ProductImportService {
       ];
     });
 
-    const worksheet = XLSX.utils.aoa_to_sheet([
-      headers,
-      ...rows
-    ]);
-
+    const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Products");
 
     // ===== CATEGORY SHEET =====
-    const categories = await this.categoryRepo
-      .createQueryBuilder("category")
-      .leftJoin("category.parent", "parent")
-      .where("parent.id IS NOT NULL")
-      .orderBy("category.name", "ASC")
-      .getMany();
-
+    const categories = await this.categoryRepo.find({ order: { name: "ASC" } });
     const categoryRows = [
       ["category_name", "category_code"],
       ...categories.map(c => [c.name, c.code])
     ];
-
     const categorySheet = XLSX.utils.aoa_to_sheet(categoryRows);
-
     XLSX.utils.book_append_sheet(workbook, categorySheet, "Categories");
+
+    // ===== BRAND SHEET =====
+    const brands = await this.brandRepo.find({ order: { name: "ASC" } });
+    const brandRows = [
+      ["brand_name"],
+      ...brands.map(b => [b.name])
+    ];
+    const brandSheet = XLSX.utils.aoa_to_sheet(brandRows);
+    XLSX.utils.book_append_sheet(workbook, brandSheet, "Brands");
 
     return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
   }
@@ -293,18 +300,19 @@ export class ProductImportService {
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows: any[] = XLSX.utils.sheet_to_json(sheet);
     const totalRows = rows.length;
-    const categories = await this.categoryRepo.find({
-      relations: ['parent']
-    });
+    
+    const categories = await this.categoryRepo.find();
     const categoryMap = new Map(categories.map(c => [c.code, c]));
 
-    const skus = rows
-      .map(r => r.sku_seller)
-      .filter(Boolean);
+    // Ambil dan buat map untuk Brand
+    const dbBrands = await this.brandRepo.find();
+    const brandMap = new Map(dbBrands.map(b => [b.name.trim().toLowerCase(), b]));
+
+    const skus = rows.map(r => r.sku_seller).filter(Boolean);
 
     const products = await this.productRepo.find({
       where: { sku_seller: In(skus) },
-      relations: ['images', 'category']
+      relations: ['images', 'category', 'brand'] // Relasi brand perlu dipanggil juga
     });
 
     const productMap = new Map(products.map(p => [p.sku_seller, p]));
@@ -318,15 +326,10 @@ export class ProductImportService {
       try {
         const percent = Math.floor(((idx + 1) / totalRows) * 100);
 
-        if (idx % 50 === 0) { // kirim tiap 50 row supaya tidak spam SSE
+        if (idx % 50 === 0) {
           const msg = `Processing row ${idx + 1}`;
-
           this.logger.log(msg);
-
-          this.progress$.next({
-            message: msg,
-            percent
-          });
+          this.progress$.next({ message: msg, percent });
         }
 
         // ===== STRICT CATEGORY =====
@@ -342,18 +345,6 @@ export class ProductImportService {
           );
         }
 
-        if (!category.parent) {
-          throw new BadRequestException(
-            `Row ${idx + 1}: Category ${category.name} adalah parent category`
-          );
-        }
-
-        // if (!category) {
-        //   throw new BadRequestException(
-        //     `Row ${idx + 1}: Category code ${row.category_code} tidak ditemukan`
-        //   );
-        // }
-
         if (
           row.category_name &&
           category.name.trim().toLowerCase() !==
@@ -362,6 +353,21 @@ export class ProductImportService {
           throw new BadRequestException(
             `Row ${idx + 1}: Category name tidak cocok untuk code ${row.category_code}`
           );
+        }
+
+        // ===== VALIDASI BRAND =====
+        let productBrand: Brand | null = null;
+
+        if (row.brand_name) {
+          productBrand = brandMap.get(
+            String(row.brand_name).trim().toLowerCase()
+          ) || null;
+
+          if (!productBrand) {
+            throw new BadRequestException(
+              `Row ${idx + 1}: Brand dengan nama '${row.brand_name}' tidak ditemukan di database`
+            );
+          }
         }
 
         // ===== PRODUCT =====
@@ -379,11 +385,16 @@ export class ProductImportService {
         product.price_discount = Number(row.price_discount) || 0;
         product.stock = Number(row.stock) || 0;
         product.warranty = row.warranty;
-        product.is_active =
-          row.is_active === true || row.is_active === 'true';
-        product.is_popular =
-          row.is_popular === true || row.is_popular === 'true';
+        product.is_active = row.is_active === true || row.is_active === 'true';
+        product.is_popular = row.is_popular === true || row.is_popular === 'true';
         product.category = category;
+        
+        // Update Brand produk
+        if (productBrand) {
+          product.brand = productBrand;
+        } else {
+          product.brand = null; // Opsional: Kosongkan brand jika kolom excel kosong (sesuaikan dengan kebijakan bisnis Anda)
+        }
 
         const savedProduct = await this.productRepo.save(product);
 
@@ -401,7 +412,6 @@ export class ProductImportService {
 
         const normalize = (url: string) => {
           if (!url) return url;
-
           if (url.startsWith("/uploads")) return url;
 
           const hash = crypto
@@ -413,7 +423,6 @@ export class ProductImportService {
         };
 
         const normalizedExcelImages = excelImages.map(normalize);
-
         const sortArr = (arr: string[]) => [...arr].sort();
 
         const sameImages =
@@ -421,7 +430,6 @@ export class ProductImportService {
           JSON.stringify(sortArr(normalizedExcelImages));
 
         if (!sameImages) {
-
           await this.productImageRepo.delete({
             product: { id: savedProduct.id },
           } as any);
@@ -430,9 +438,7 @@ export class ProductImportService {
             const imageUrl = row[`image_${i}`];
 
             if (imageUrl) {
-
-              const processed =
-                await this.productService.processSingleImage(imageUrl, i - 1);
+              const processed = await this.productService.processSingleImage(imageUrl, i - 1);
 
               await this.productImageRepo.save({
                 product: savedProduct,
@@ -442,7 +448,6 @@ export class ProductImportService {
               });
             }
           }
-
         }
 
         totalUpdated++;
@@ -461,11 +466,6 @@ export class ProductImportService {
       total_updated: totalUpdated,
       total_error: errors.length,
       errors,
-    };
-
-    return {
-      message: 'Update selesai',
-      total_updated: totalUpdated,
     };
   }
 }

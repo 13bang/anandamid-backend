@@ -12,6 +12,7 @@ import {
 import { Category } from "../../category/entities/category.entity";
 import { Expose } from "class-transformer";
 import { ProductImage } from "../../product-image/entities/product-image.entity";
+import { Brand } from "../../brand/entities/brand.entity";
 
 @Entity('products')
 export class Product {
@@ -48,10 +49,10 @@ export class Product {
     @Column({ type: 'integer', default: 0 })
     stock: number;
 
-    @Column({ type: 'varchar', length: 100, nullable: true })
+    @Column({ type: 'text', nullable: true })
     sku_seller: string | null;
-
-    @Column({ type: 'varchar', length: 100, nullable: true })
+        
+    @Column({ type: 'text', nullable: true })
     warranty: string | null;
 
     @Column({ default: true })
@@ -66,7 +67,6 @@ export class Product {
     @Column({ type: 'int', default: 0 })
     search_count: number;
 
-    // 🔥 VARIASI ARRAY (FIXED)
     @Column("text", {
         array: true,
         nullable: true,
@@ -92,4 +92,17 @@ export class Product {
         cascade: true,
     })
     images: ProductImage[];
+
+    @ManyToOne(() => Brand, (brand) => brand.products, {
+        nullable: true,
+        onDelete: "SET NULL",
+    })
+    @JoinColumn({ name: "brand_id" })
+    brand: Brand | null;
+
+    @Column({ type: 'varchar', length: 50, nullable: true })
+    socket_type: string | null; 
+
+    @Column({ type: 'varchar', length: 50, nullable: true })
+    ram_type: string | null;
 }

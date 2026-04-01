@@ -17,6 +17,11 @@ export class PublicProductController {
     return this.productService.findActiveProducts(query);
   }
 
+  @Get("compatibility")
+  getCompatibility(@Query() query) {
+    return this.productService.getCompatibilityBuilder(query);
+  }
+
   @Get(':id/recommendations')
   getRecommendations(@Param('id') id: string) {
     return this.productService.getRecommendations(id);
