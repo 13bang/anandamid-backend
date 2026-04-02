@@ -6,10 +6,10 @@ from bs4 import BeautifulSoup
 import hashlib
 import os
 
-# BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# file_path = os.path.join(BASE_DIR, "..", "excel", "Tiktoksellercenter_batchedit_20260328_all_information_template_12.xlsx")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-file_path = os.path.join(BASE_DIR, "..", "excel","excel2", "Tiktoksellercenter_batchedit_20260328_all_information_template_1.xlsx")
+file_path = os.path.join(BASE_DIR, "..", "excel", "Tiktoksellercenter_batchedit_20260402_all_information_template_9.xlsx")
+# BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# file_path = os.path.join(BASE_DIR, "..", "excel","excel2", "Tiktoksellercenter_batchedit_20260402_all_information_template_12.xlsx")
 
 # ==============================
 # CONFIG DATABASE
