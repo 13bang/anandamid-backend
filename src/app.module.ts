@@ -15,28 +15,32 @@ import { BannerImageModule } from './banner/banner.module';
 import { CertificateModule } from './certificate/certificate.module';
 import { GroupingModule } from './grouping/grouping.module';
 import { BrandModule } from './brand/brand.module';
+import { ImageDownloadController } from './image-download/image-download.controller';
+import { ImageDownloadService } from './image-download/image-download.service';
+import { ImageDownloadModule } from './image-download/image-download.module';
 
 @Module({
-  imports: [ConfigModule.forRoot({
-    isGlobal: true,
-  }), 
-  TypeOrmModule.forRootAsync({
-    imports: [ConfigModule],
-    inject: [ConfigService],
-    useFactory: (configService: ConfigService) => TypeOrmConfig(configService)
-  }),
-  ProductModule,
-  CategoryModule,
-  ProductImageModule,
-  AuthModule,
-  AdminModule,
-  ProductImportModule,
-  PricelistModule,
-  BannerImageModule,
-  CertificateModule,
-  GroupingModule,
-  BrandModule], 
-  controllers: [AppController],
-  providers: [AppService],
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
+    TypeOrmModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => TypeOrmConfig(configService)
+    }),
+    ProductModule,
+    CategoryModule,
+    ProductImageModule,
+    AuthModule,
+    AdminModule,
+    ProductImportModule,
+    PricelistModule,
+    BannerImageModule,
+    CertificateModule,
+    GroupingModule,
+    BrandModule,
+    ImageDownloadModule, 
+  ],
+  controllers: [AppController], 
+  providers: [AppService],     
 })
 export class AppModule {}
