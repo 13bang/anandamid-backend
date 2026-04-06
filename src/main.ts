@@ -11,6 +11,8 @@ async function bootstrap() {
     origin: [
       'http://localhost:5173',
       'http://192.168.1.177:5173',
+      "https://staging.anandam.id",
+      "https://anandam.id",
     ],
     credentials: true,
   });

@@ -28,9 +28,18 @@ export class CertificateService {
     return `${number}/ANND/${month}/${year}`;
   }
 
-  async create(dto: CreateCertificateDto) {
+  // ✅ Helper untuk format tanggal ke format Indonesia
+  private formatDate(date: Date | string): string {
+    const d = new Date(date);
+    return d.toLocaleDateString("id-ID", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  }
 
-    const certificate_number = await this.generateNumber()
+  async create(dto: CreateCertificateDto) {
+    const certificate_number = await this.generateNumber();
 
     const certificate = this.certificateRepo.create({
       name: dto.name,
@@ -39,26 +48,28 @@ export class CertificateService {
       end_date: dto.end_date,
       certificate_number,
       status: dto.status,
-      reason: dto.status === "lainnya" ? dto.reason : undefined
-    })
+      reason: dto.status === "lainnya" ? dto.reason : undefined,
+    });
 
-    const saved: Certificate = await this.certificateRepo.save(certificate)
+    const saved: Certificate = await this.certificateRepo.save(certificate);
 
     // ❗ kalau status gagal → skip generate PDF
     if (dto.status === "gagal") {
-      return saved
+      return saved;
     }
 
-    // ✅ hanya generate kalau bukan gagal
+    // ✅ hanya generate kalau bukan gagal, oper tanggal juga ke method generatePdf
     const pdf_url = await this.generatePdf(
       dto.name,
       certificate_number,
-      saved.id
-    )
+      saved.id,
+      saved.start_date,
+      saved.end_date
+    );
 
-    saved.pdf_url = pdf_url
+    saved.pdf_url = pdf_url;
 
-    return this.certificateRepo.save(saved)
+    return this.certificateRepo.save(saved);
   }
 
   async findAll() {
@@ -69,72 +80,74 @@ export class CertificateService {
 
   async findOneById(id: string) {
     return this.certificateRepo.findOne({
-      where: { id }
-    })
+      where: { id },
+    });
   }
 
-  async generatePdf(name: string, number: string, id: string) {
+  // ✅ Tambahkan parameter startDate dan endDate di sini
+  async generatePdf(name: string, number: string, id: string, startDate: Date, endDate: Date) {
+    const templatePath = path.join(process.cwd(), "templates", "certificate.html");
+    const templateImage = path.join(process.cwd(), "templates", "certificate.png");
 
-    const templatePath = path.join(process.cwd(),"templates","certificate.html")
-    const templateImage = path.join(process.cwd(),"templates","certificate.png")
+    let html = fs.readFileSync(templatePath, "utf8");
 
-    let html = fs.readFileSync(templatePath,"utf8")
-
-    const imageBuffer = fs.readFileSync(templateImage)
-    const imageBase64 = imageBuffer.toString("base64")
-    const imageSrc = `data:image/png;base64,${imageBase64}`
+    const imageBuffer = fs.readFileSync(templateImage);
+    const imageBase64 = imageBuffer.toString("base64");
+    const imageSrc = `data:image/png;base64,${imageBase64}`;
 
     // URL untuk verifikasi
-    const verifyUrl = `http://192.168.1.177:5173/certificate/${id}`
+    const verifyUrl = `http://192.168.1.177:5173/certificate/${id}`;
 
     // generate QR base64
-    const qrBase64 = await QRCode.toDataURL(verifyUrl)
+    const qrBase64 = await QRCode.toDataURL(verifyUrl);
+
+    // Format periode tanggal
+    const period = `${this.formatDate(startDate)} - ${this.formatDate(endDate)}`;
 
     html = html
       .replace("{{name}}", name)
       .replace("{{number}}", number)
+      .replace("{{period}}", period) // ✅ Inject periode ke HTML
       .replace("{{template}}", imageSrc)
-      .replace("{{qr}}", qrBase64)
+      .replace("{{qr}}", qrBase64);
 
     const browser = await puppeteer.launch({
-      args: ["--no-sandbox", "--disable-setuid-sandbox"]
-    })
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    });
 
-    const page = await browser.newPage()
+    const page = await browser.newPage();
 
-    await page.setContent(html)
+    await page.setContent(html);
 
-    const fileName = `${number.replace(/\//g,"-")}.pdf`
+    const fileName = `${number.replace(/\//g, "-")}.pdf`;
 
-    const pdfPath = path.join(process.cwd(),"uploads","certificates",fileName)
+    const pdfPath = path.join(process.cwd(), "uploads", "certificates", fileName);
 
     await page.pdf({
       path: pdfPath,
-      format:"A4",
-      landscape:true,
-      printBackground:true
-    })
+      format: "A4",
+      landscape: true,
+      printBackground: true,
+    });
 
-    await browser.close()
+    await browser.close();
 
-    return `/uploads/certificates/${fileName}`
+    return `/uploads/certificates/${fileName}`;
   }
 
   async search(q: string) {
+    const query = q.trim();
 
-    const query = q.trim()
-
-    if(!query) return []
+    if (!query) return [];
 
     return this.certificateRepo.find({
       where: [
         { certificate_number: ILike(`%${query}%`) },
-        { name: ILike(`%${query}%`) }
+        { name: ILike(`%${query}%`) },
       ],
       order: {
-        created_at: "DESC"
-      }
-    })
-
+        created_at: "DESC",
+      },
+    });
   }
 }

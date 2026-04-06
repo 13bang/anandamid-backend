@@ -23,26 +23,35 @@
 
             .number{
                 position:absolute;
-                top:240px;
+                top:215px;
                 width:100%;
                 text-align:center;
-                font-size:22px;
+                font-size:24px;
                 font-weight:500;
             }
 
             .name{
                 position:absolute;
-                top:345px;
+                top:320px;
                 width:100%;
                 text-align:center;
-                font-size:42px;
+                font-size:50px;
                 font-weight:bold;
+            }
+
+            .period{
+                position:absolute;
+                top:475px; 
+                width:100%;
+                text-align:center;
+                font-size:24px;
+                font-weight:normal;
             }
 
             .qr{
                 position:absolute;
-                bottom:60px;
-                right:60px;
+                bottom:20px;
+                left:25px;
                 width:110px;
             }
 
@@ -56,11 +65,15 @@
             <img src="{{template}}" class="bg"/>
 
             <div class="number">
-                NOMOR : {{number}}
+                {{number}}
             </div>
 
             <div class="name">
                 {{name}}
+            </div>
+
+            <div class="period">
+                {{period}}
             </div>
 
             <img src="{{qr}}" class="qr" />
