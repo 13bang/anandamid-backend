@@ -1,4 +1,5 @@
-import { IsArray, IsOptional, IsString } from 'class-validator';
+import { IsString, IsOptional, IsArray } from 'class-validator';
+import { Transform } from 'class-transformer';
 
 export class UpdateGroupingDto {
   @IsOptional()
@@ -10,6 +11,7 @@ export class UpdateGroupingDto {
   image_url?: string;
 
   @IsOptional()
+  @Transform(({ value }) => (Array.isArray(value) ? value : value ? [value] : []))
   @IsArray()
   child_ids?: string[];
 }
