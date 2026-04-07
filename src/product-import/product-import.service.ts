@@ -245,6 +245,7 @@ export class ProductImportService {
 
     const rows = products.map(product => {
       const images = Array(10).fill("");
+
       if (product.images?.length) {
         product.images.forEach(img => {
           if (img.sort_order >= 0 && img.sort_order <= 9) {
@@ -253,21 +254,26 @@ export class ProductImportService {
         });
       }
 
+      const clean = (val: any) => {
+        if (val === null || val === undefined) return '';
+        const str = String(val).trim().toLowerCase();
+        if (str === 'nan') return '';
+        return val;
+      };
+
       return [
         product.name,
         product.description,
         product.price_normal,
         product.price_discount,
         product.stock,
-        product.sku_seller,
+        clean(product.sku_seller), // ✅ FIX DI SINI
         product.warranty,
         product.brand?.name || '',
         product.category?.name,
         product.category?.code,
-
-        product.socket_type || '', // <--- MAPPING DATA DB KE EXCEL
-        product.ram_type || '',    // <--- MAPPING DATA DB KE EXCEL
-
+        product.socket_type || '',
+        product.ram_type || '',
         product.is_active,
         product.is_popular,
         ...images
@@ -334,6 +340,9 @@ export class ProductImportService {
 
     const productMap = new Map(products.map(p => [String(p.sku_seller).trim(), p]));
 
+    const normalize = (val: any) => String(val ?? '').trim();
+    const normalizeLower = (val: any) => normalize(val).toLowerCase();
+
     let totalUpdated = 0;
     const errors: string[] = [];
 
@@ -353,22 +362,61 @@ export class ProductImportService {
         if (!product) throw new BadRequestException(`Row ${idx + 1}: Product dengan SKU ${excelSku} tidak ditemukan`);
 
         // 1. VALIDASI KATEGORI
-        const excelCategoryCode = row.category_code ? String(row.category_code).trim() : null;
+        const excelCategoryCode = row.category_code ? normalize(row.category_code) : null;
+
         if (excelCategoryCode) {
           const category = categoryMap.get(excelCategoryCode);
-          if (!category) throw new BadRequestException(`Row ${idx + 1}: Category code ${excelCategoryCode} tidak ditemukan`);
-          
-          if (row.category_name && category.name.trim().toLowerCase() !== String(row.category_name).trim().toLowerCase()) {
-            throw new BadRequestException(`Row ${idx + 1}: Category name tidak cocok untuk code ${excelCategoryCode}`);
+
+          if (!category) {
+            console.log("❌ CATEGORY TIDAK KETEMU:", {
+              excel: excelCategoryCode,
+              available: [...categoryMap.keys()].slice(0, 5)
+            });
+            throw new BadRequestException(`Row ${idx + 1}: Category code ${excelCategoryCode} tidak ditemukan`);
           }
+
+          if (row.category_name) {
+            const excelCategoryName = normalizeLower(row.category_name);
+            const dbCategoryName = normalizeLower(category.name);
+
+            if (dbCategoryName !== excelCategoryName) {
+              console.log("❌ CATEGORY NAME MISMATCH:", {
+                excel: excelCategoryName,
+                db: dbCategoryName
+              });
+              throw new BadRequestException(`Row ${idx + 1}: Category name tidak cocok untuk code ${excelCategoryCode}`);
+            }
+          }
+
+          console.log("✅ CATEGORY UPDATE:", {
+            sku: product.sku_seller,
+            from: product.category?.code,
+            to: category.code
+          });
+
           product.category = category;
         }
 
         // 2. VALIDASI BRAND
-        const excelBrandName = row.brand_name ? String(row.brand_name).trim().toLowerCase() : null;
+        const excelBrandName = row.brand_name ? normalizeLower(row.brand_name) : null;
+
         if (excelBrandName) {
           const productBrand = brandMap.get(excelBrandName);
-          if (!productBrand) throw new BadRequestException(`Row ${idx + 1}: Brand '${row.brand_name}' tidak ditemukan`);
+
+          if (!productBrand) {
+            console.log("❌ BRAND TIDAK KETEMU:", {
+              excel: excelBrandName,
+              available: [...brandMap.keys()].slice(0, 5)
+            });
+            throw new BadRequestException(`Row ${idx + 1}: Brand '${row.brand_name}' tidak ditemukan`);
+          }
+
+          console.log("✅ BRAND UPDATE:", {
+            sku: product.sku_seller,
+            from: product.brand?.name,
+            to: productBrand.name
+          });
+
           product.brand = productBrand;
         }
 
@@ -389,7 +437,15 @@ export class ProductImportService {
         if (row.is_popular !== undefined) product.is_popular = row.is_popular === true || row.is_popular === 'true';
 
         // 4. SAVE KE DATABASE
-        await this.productRepo.save(product); 
+        console.log("🚀 UPDATE PRODUCT:", {
+          sku: product.sku_seller,
+          name: product.name,
+          category: product.category?.code,
+          brand: product.brand?.name,
+          socket: product.socket_type,
+          ram: product.ram_type
+        });
+        await this.productRepo.save(product);
         totalUpdated++;
 
       } catch (err: any) {
