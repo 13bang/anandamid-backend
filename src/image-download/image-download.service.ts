@@ -38,18 +38,39 @@ export class ImageDownloadService {
     let successCount = 0;
     let failCount = 0;
 
-    for (const product of products) {
+    const total = products.length;
+
+    this.logger.log(`🚀 START DOWNLOAD ${total} PRODUCTS`);
+
+    for (let i = 0; i < total; i++) {
+      const product = products[i];
+      const current = i + 1;
+      const remaining = total - current;
+
       try {
-        this.logger.log(`Processing: ${product.name}`);
-        // Memanggil fungsi dari product service persis seperti script lu
+        this.logger.log(
+          `📦 [${current}/${total}] Processing: ${product.name} | Sisa: ${remaining}`
+        );
+
         await (this.productService as any).ensureImagesDownloaded(product);
+
         successCount++;
+
+        this.logger.log(
+          `✅ SUCCESS [${current}/${total}] ${product.name} | Sisa: ${remaining}`
+        );
       } catch (error) {
-        this.logger.error(`Gagal download image untuk produk: ${product.name}`, error);
         failCount++;
+
+        this.logger.error(
+          `❌ FAILED [${current}/${total}] ${product.name} | Sisa: ${remaining}`,
+          error
+        );
       }
     }
 
-    this.logger.log(`DONE DOWNLOAD ALL IMAGES. Berhasil: ${successCount}, Gagal: ${failCount}`);
+    this.logger.log(`🎉 DONE DOWNLOAD ALL IMAGES`);
+    this.logger.log(`✅ Berhasil: ${successCount}`);
+    this.logger.log(`❌ Gagal: ${failCount}`);
   }
 }

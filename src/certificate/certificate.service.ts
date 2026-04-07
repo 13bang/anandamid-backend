@@ -25,10 +25,9 @@ export class CertificateService {
     const month = date.toLocaleString("id-ID", { month: "2-digit" });
     const year = date.getFullYear();
 
-    return `${number}/ANND/${month}/${year}`;
+    return `${number}/ANID/${month}/${year}`;
   }
 
-  // ✅ Helper untuk format tanggal ke format Indonesia
   private formatDate(date: Date | string): string {
     const d = new Date(date);
     return d.toLocaleDateString("id-ID", {
@@ -96,7 +95,7 @@ export class CertificateService {
     const imageSrc = `data:image/png;base64,${imageBase64}`;
 
     // URL untuk verifikasi
-    const verifyUrl = `http://192.168.1.177:5173/certificate/${id}`;
+    const verifyUrl = `https://staging.anandam.id/certificate/${id}`;
 
     // generate QR base64
     const qrBase64 = await QRCode.toDataURL(verifyUrl);

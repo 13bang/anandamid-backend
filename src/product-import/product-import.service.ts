@@ -291,10 +291,7 @@ export class ProductImportService {
 
   // UPDATE PRODUCT
   async updateProducts(buffer: Buffer) {
-    this.progress$.next({
-      message: "Reading Excel file...",
-      percent: 0
-    });
+    this.progress$.next({ message: "Reading Excel file...", percent: 0 });
 
     const workbook = XLSX.read(buffer, { type: 'buffer' });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -302,20 +299,19 @@ export class ProductImportService {
     const totalRows = rows.length;
     
     const categories = await this.categoryRepo.find();
-    const categoryMap = new Map(categories.map(c => [c.code, c]));
+    const categoryMap = new Map(categories.map(c => [String(c.code).trim(), c]));
 
-    // Ambil dan buat map untuk Brand
     const dbBrands = await this.brandRepo.find();
-    const brandMap = new Map(dbBrands.map(b => [b.name.trim().toLowerCase(), b]));
+    const brandMap = new Map(dbBrands.map(b => [String(b.name).trim().toLowerCase(), b]));
 
-    const skus = rows.map(r => r.sku_seller).filter(Boolean);
+    const skus = rows.map(r => r.sku_seller ? String(r.sku_seller).trim() : null).filter(Boolean);
 
     const products = await this.productRepo.find({
       where: { sku_seller: In(skus) },
-      relations: ['images', 'category', 'brand'] // Relasi brand perlu dipanggil juga
+      relations: ['images', 'category', 'brand']
     });
 
-    const productMap = new Map(products.map(p => [p.sku_seller, p]));
+    const productMap = new Map(products.map(p => [String(p.sku_seller).trim(), p]));
 
     let totalUpdated = 0;
     const errors: string[] = [];
@@ -325,147 +321,74 @@ export class ProductImportService {
 
       try {
         const percent = Math.floor(((idx + 1) / totalRows) * 100);
-
         if (idx % 50 === 0) {
-          const msg = `Processing row ${idx + 1}`;
-          this.logger.log(msg);
-          this.progress$.next({ message: msg, percent });
+          this.progress$.next({ message: `Processing row ${idx + 1}`, percent });
         }
 
-        // ===== STRICT CATEGORY =====
-        if (!row.category_code) {
-          throw new BadRequestException(`Row ${idx + 1}: Category code wajib diisi`);
+        const excelSku = row.sku_seller ? String(row.sku_seller).trim() : null;
+        if (!excelSku) throw new BadRequestException(`Row ${idx + 1}: SKU seller wajib diisi`);
+
+        let product = productMap.get(excelSku);
+        if (!product) throw new BadRequestException(`Row ${idx + 1}: Product dengan SKU ${excelSku} tidak ditemukan`);
+
+        // 1. VALIDASI KATEGORI (SEKARANG OPSIONAL)
+        const excelCategoryCode = row.category_code ? String(row.category_code).trim() : null;
+        if (excelCategoryCode) {
+          const category = categoryMap.get(excelCategoryCode);
+          if (!category) {
+            throw new BadRequestException(`Row ${idx + 1}: Category code ${excelCategoryCode} tidak ditemukan`);
+          }
+          // Cek jika ada nama kategori tapi tidak sinkron dengan kodenya
+          if (row.category_name && category.name.trim().toLowerCase() !== String(row.category_name).trim().toLowerCase()) {
+            throw new BadRequestException(`Row ${idx + 1}: Category name tidak cocok untuk code ${excelCategoryCode}`);
+          }
+          product.category = category; // Hanya update jika ada di excel
         }
 
-        const category = categoryMap.get(row.category_code);
-
-        if (!category) {
-          throw new BadRequestException(
-            `Row ${idx + 1}: Category code ${row.category_code} tidak ditemukan`
-          );
-        }
-
-        if (
-          row.category_name &&
-          category.name.trim().toLowerCase() !==
-            String(row.category_name).trim().toLowerCase()
-        ) {
-          throw new BadRequestException(
-            `Row ${idx + 1}: Category name tidak cocok untuk code ${row.category_code}`
-          );
-        }
-
-        // ===== VALIDASI BRAND =====
-        let productBrand: Brand | null = null;
-
-        if (row.brand_name) {
-          productBrand = brandMap.get(
-            String(row.brand_name).trim().toLowerCase()
-          ) || null;
-
+        // 2. VALIDASI BRAND (SEKARANG OPSIONAL)
+        const excelBrandName = row.brand_name ? String(row.brand_name).trim().toLowerCase() : null;
+        if (excelBrandName) {
+          const productBrand = brandMap.get(excelBrandName);
           if (!productBrand) {
-            throw new BadRequestException(
-              `Row ${idx + 1}: Brand dengan nama '${row.brand_name}' tidak ditemukan di database`
-            );
+            throw new BadRequestException(`Row ${idx + 1}: Brand '${row.brand_name}' tidak ditemukan`);
           }
+          product.brand = productBrand; // Hanya update jika ada di excel
         }
 
-        // ===== PRODUCT =====
-        let product = productMap.get(row.sku_seller);
-
-        if (!product) {
-          throw new BadRequestException(
-            `Row ${idx + 1}: Product dengan SKU ${row.sku_seller} tidak ditemukan`
-          );
-        }
-
-        product.name = row.name;
-        product.description = row.description;
-        product.price_normal = Number(row.price_normal) || 0;
-        product.price_discount = Number(row.price_discount) || 0;
-        product.stock = Number(row.stock) || 0;
-        product.warranty = row.warranty;
-        product.is_active = row.is_active === true || row.is_active === 'true';
-        product.is_popular = row.is_popular === true || row.is_popular === 'true';
-        product.category = category;
+        // 3. ASSIGN DATA LAINNYA
+        if (row.name) product.name = row.name;
+        if (row.description !== undefined) product.description = row.description;
+        if (row.price_normal !== undefined) product.price_normal = Number(row.price_normal) || 0;
+        if (row.price_discount !== undefined) product.price_discount = Number(row.price_discount) || 0;
+        if (row.stock !== undefined) product.stock = Number(row.stock) || 0;
+        if (row.warranty !== undefined) product.warranty = row.warranty;
         
-        // Update Brand produk
-        if (productBrand) {
-          product.brand = productBrand;
-        } else {
-          product.brand = null; // Opsional: Kosongkan brand jika kolom excel kosong (sesuaikan dengan kebijakan bisnis Anda)
+        // Handle Boolean fields
+        if (row.is_active !== undefined) {
+          product.is_active = row.is_active === true || row.is_active === 'true';
+        }
+        if (row.is_popular !== undefined) {
+          product.is_popular = row.is_popular === true || row.is_popular === 'true';
         }
 
-        const savedProduct = await this.productRepo.save(product);
-
-        const existingImages = product.images
-          ?.sort((a, b) => a.sort_order - b.sort_order)
-          .map(i => i.image_url) || [];
-
-        const excelImages: string[] = [];
-
-        for (let i = 1; i <= 10; i++) {
-          if (row[`image_${i}`]) {
-            excelImages.push(row[`image_${i}`]);
-          }
-        }
-
-        const normalize = (url: string) => {
-          if (!url) return url;
-          if (url.startsWith("/uploads")) return url;
-
-          const hash = crypto
-            .createHash("md5")
-            .update(url)
-            .digest("hex");
-
-          return `/uploads/products/original/${hash}.jpg`;
-        };
-
-        const normalizedExcelImages = excelImages.map(normalize);
-        const sortArr = (arr: string[]) => [...arr].sort();
-
-        const sameImages =
-          JSON.stringify(sortArr(existingImages)) ===
-          JSON.stringify(sortArr(normalizedExcelImages));
-
-        if (!sameImages) {
-          await this.productImageRepo.delete({
-            product: { id: savedProduct.id },
-          } as any);
-
-          for (let i = 1; i <= 10; i++) {
-            const imageUrl = row[`image_${i}`];
-
-            if (imageUrl) {
-              const processed = await this.productService.processSingleImage(imageUrl, i - 1);
-
-              await this.productImageRepo.save({
-                product: savedProduct,
-                image_url: processed?.image_url,
-                thumbnail_url: processed?.thumbnail_url,
-                sort_order: i - 1,
-              });
-            }
-          }
-        }
-
+        // 4. SAVE KE DATABASE
+        await this.productRepo.save(product); 
         totalUpdated++;
+
       } catch (err: any) {
         errors.push(err.message);
       }
     }
 
-    this.progress$.next({
-      message: "Update selesai",
-      percent: 100
-    });
+    if (errors.length > 0) {
+      throw new BadRequestException({
+        message: 'Update selesai dengan beberapa error',
+        total_error: errors.length,
+        errors,
+      });
+    }
 
-    return {
-      message: errors.length > 0 ? 'Update selesai dengan error' : 'Update selesai',
-      total_updated: totalUpdated,
-      total_error: errors.length,
-      errors,
-    };
+    this.progress$.next({ message: "Update selesai", percent: 100 });
+    return { message: 'Update selesai', total_updated: totalUpdated };
   }
 }
