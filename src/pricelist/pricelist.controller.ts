@@ -56,5 +56,5 @@ export class PricelistController {
   @Get(':type')
   findOne(@Param('type') type: string) {
     return this.service.findByType(type);
-  }
+  } 
 }
