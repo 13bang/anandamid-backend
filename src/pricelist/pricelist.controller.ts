@@ -49,13 +49,11 @@ export class PricelistController {
   }
 
   @Get()
-  @UseGuards(JwtAuthGuard)  
   findAll() {
     return this.service.findAll();
   }
 
   @Get(':type')
-  @UseGuards(JwtAuthGuard)  
   findOne(@Param('type') type: string) {
     return this.service.findByType(type);
   }
