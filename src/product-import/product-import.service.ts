@@ -1,5 +1,6 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
-import * as XLSX from 'xlsx';
+// import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { Product } from '../product/entities/product.entity';
@@ -88,6 +89,18 @@ export class ProductImportService {
     ];
 
     const productSheet = XLSX.utils.aoa_to_sheet([headers, exampleRow1, exampleRow2]);
+    
+    productSheet['!views'] = [{ state: 'frozen', ySplit: 1 }];
+
+    headers.forEach((_, colIndex) => {
+      const cellAddress = XLSX.utils.encode_cell({ r: 0, c: colIndex });
+      if (!productSheet[cellAddress]) return;
+
+      productSheet[cellAddress].s = {
+        font: { bold: true },
+        fill: { fgColor: { rgb: "D9E1F2" } }
+      };
+    });
 
     // ===== CATEGORY SHEET =====
     const categories = await this.categoryRepo.find({ order: { name: "ASC" } });
@@ -222,14 +235,6 @@ export class ProductImportService {
   // GENERATE TEMPLATE UPDATE
   // ==========================
   async generateUpdateTemplate(categoryCodes?: string[]): Promise<Buffer> {
-    const headers = [
-      'name','description','price_normal','price_discount','stock','sku_seller',
-      'warranty','brand_name','category_name','category_code',
-      'socket_type','ram_type', // <--- TAMBAHAN KOLOM BARU
-      'is_active','is_popular',
-      'image_1','image_2','image_3','image_4','image_5','image_6','image_7','image_8','image_9','image_10'
-    ];
-
     const query = this.productRepo
       .createQueryBuilder("product")
       .leftJoinAndSelect("product.category", "category")
@@ -243,6 +248,31 @@ export class ProductImportService {
 
     const products = await query.getMany();
 
+    // 1. Cek apakah di dalam list produk ini ada kategori RAM, Mobo, atau Processor
+    const hardwareKeywords = ['ram', 'memory', 'motherboard', 'mobo', 'processor', 'cpu'];
+    const includeHardwareCols = products.some(p => {
+      const catName = (p.category?.name || '').toLowerCase();
+      return hardwareKeywords.some(keyword => catName.includes(keyword));
+    });
+
+    // 2. Susun Headers secara dinamis
+    const headers = [
+      'name', 'description', 'price_normal', 'price_discount', 'stock', 'sku_seller',
+      'warranty', 'brand_name', 'category_name', 'category_code'
+    ];
+
+    // Sisipkan kolom hardware jika kondisinya terpenuhi
+    if (includeHardwareCols) {
+      headers.push('socket_type', 'ram_type');
+    }
+
+    headers.push(
+      'is_active', 'is_popular',
+      'image_1', 'image_2', 'image_3', 'image_4', 'image_5', 
+      'image_6', 'image_7', 'image_8', 'image_9', 'image_10'
+    );
+
+    // 3. Susun Data Rows secara dinamis
     const rows = products.map(product => {
       const images = Array(10).fill("");
 
@@ -261,26 +291,82 @@ export class ProductImportService {
         return val;
       };
 
-      return [
+      const rowData = [
         product.name,
         product.description,
         product.price_normal,
         product.price_discount,
         product.stock,
-        clean(product.sku_seller), // ✅ FIX DI SINI
+        clean(product.sku_seller),
         product.warranty,
         product.brand?.name || '',
         product.category?.name,
-        product.category?.code,
-        product.socket_type || '',
-        product.ram_type || '',
+        product.category?.code
+      ];
+
+      // Sisipkan data hardware jika headers-nya juga disisipkan
+      if (includeHardwareCols) {
+        rowData.push(product.socket_type || '', product.ram_type || '');
+      }
+
+      rowData.push(
         product.is_active,
         product.is_popular,
         ...images
-      ];
+      );
+
+      return rowData;
     });
 
     const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    
+    const borderStyle = {
+      top: { style: "thin", color: { rgb: "000000" } },
+      bottom: { style: "thin", color: { rgb: "000000" } },
+      left: { style: "thin", color: { rgb: "000000" } },
+      right: { style: "thin", color: { rgb: "000000" } },
+    };
+    
+    worksheet['!views'] = [{ state: 'frozen', ySplit: 1 }];
+    headers.forEach((_, colIndex) => {
+      const cellAddress = XLSX.utils.encode_cell({ r: 0, c: colIndex });
+      if (!worksheet[cellAddress]) return;
+
+      worksheet[cellAddress].s = {
+        font: { bold: true },
+        fill: { fgColor: { rgb: "D9E1F2" } },
+        border: borderStyle
+      };
+    });
+
+    const range = XLSX.utils.decode_range(worksheet['!ref'] || '');
+
+    for (let R = 1; R <= range.e.r; ++R) {
+      for (let C = 0; C <= range.e.c; ++C) {
+        const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
+        let cell = worksheet[cellAddress];
+
+        if (!cell) {
+          cell = { v: '', t: 's' };
+        }
+
+        const isEmpty =
+          cell.v === '' ||
+          cell.v === null ||
+          String(cell.v).toLowerCase() === 'nan';
+
+        worksheet[cellAddress] = {
+          ...cell,
+          s: {
+            ...(cell.s || {}),
+            fill: isEmpty
+              ? { fgColor: { rgb: "FFFFCC" } }
+              : undefined,
+            border: borderStyle
+          }
+        };
+      }
+    }
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Products");
 
