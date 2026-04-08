@@ -86,6 +86,12 @@ async update(id: string, dto: UpdateGroupingDto) {
       order: { name: 'ASC' },
     });
 
+    data.sort((a, b) => {
+      if (a.name === 'Lainnya') return 1;
+      if (b.name === 'Lainnya') return -1;
+      return 0; 
+    });
+
     return data.map((g) => ({
       id: g.id,
       name: g.name,
