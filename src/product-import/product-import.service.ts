@@ -231,10 +231,11 @@ export class ProductImportService {
     return { message: 'Upload selesai', total_created: totalCreated };
   }
 
-  // ==========================
+// ==========================
   // GENERATE TEMPLATE UPDATE
   // ==========================
-  async generateUpdateTemplate(categoryCodes?: string[]): Promise<Buffer> {
+  // Tambahkan parameter onlyWithSku (default true)
+  async generateUpdateTemplate(categoryCodes?: string[], onlyWithSku: boolean = true): Promise<Buffer> {
     const query = this.productRepo
       .createQueryBuilder("product")
       .leftJoinAndSelect("product.category", "category")
@@ -244,6 +245,14 @@ export class ProductImportService {
 
     if (categoryCodes && categoryCodes.length > 0) {
       query.andWhere("category.code IN (:...codes)", { codes: categoryCodes });
+    }
+
+    // Filter SKU Seller
+    if (onlyWithSku) {
+      query
+        .andWhere("product.sku_seller IS NOT NULL")
+        .andWhere("TRIM(product.sku_seller) != ''")
+        .andWhere("LOWER(TRIM(product.sku_seller)) != 'nan'");
     }
 
     const products = await query.getMany();

@@ -27,18 +27,18 @@ export class ProductImportController {
   @UseGuards(JwtAuthGuard)
   async downloadUpdateTemplate(
     @Query('category_code') categoryCode: string,
+    @Query('only_with_sku') onlyWithSku: string, // Ambil dari query
     @Res() res: Response
   ) {
+    const categoryCodes = categoryCode ? categoryCode.split(',') : undefined;
+    
+    // Konversi string 'true'/'false' ke boolean murni
+    const isOnlySku = onlyWithSku === undefined ? true : onlyWithSku === 'true';
 
-    const categoryCodes = categoryCode
-      ? categoryCode.split(',')
-      : undefined;
-
-    const buffer = await this.productImportService.generateUpdateTemplate(categoryCodes);
+    const buffer = await this.productImportService.generateUpdateTemplate(categoryCodes, isOnlySku);
 
     res.set({
-      'Content-Type':
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'Content-Disposition': 'attachment; filename=product-update-template.xlsx',
     });
 
