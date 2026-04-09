@@ -18,6 +18,7 @@ import { BrandModule } from './brand/brand.module';
 import { ImageDownloadController } from './image-download/image-download.controller';
 import { ImageDownloadService } from './image-download/image-download.service';
 import { ImageDownloadModule } from './image-download/image-download.module';
+import { ContactModule } from './contact/contact.module';
 
 @Module({
   imports: [
@@ -38,7 +39,8 @@ import { ImageDownloadModule } from './image-download/image-download.module';
     CertificateModule,
     GroupingModule,
     BrandModule,
-    ImageDownloadModule, 
+    ImageDownloadModule,
+    ContactModule, 
   ],
   controllers: [AppController], 
   providers: [AppService],     
