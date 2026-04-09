@@ -304,6 +304,7 @@ is_active,
 min_price,
 max_price,
 only_duplicate,
+no_category,
 category_ids,
 grouping,
 } = query;
@@ -393,17 +394,19 @@ if (brand) {
 // ======================
 // CATEGORY FILTER
 // ======================
-if (category) {
-  qb.andWhere(
-    new Brackets(qb2 => {
-      qb2.where('LOWER(category.name) LIKE LOWER(:category)', {
-        category: `%${category}%`,
-      }).orWhere('category.code = :categoryExact', {
-        categoryExact: category,
-      });
-    })
-  );
-}
+if (no_category === 'true') {
+    qb.andWhere('product.category_id IS NULL');
+  } else if (category) {
+    qb.andWhere(
+      new Brackets(qb2 => {
+        qb2.where('LOWER(category.name) LIKE LOWER(:category)', {
+          category: `%${category}%`,
+        }).orWhere('category.code = :categoryExact', {
+          categoryExact: category,
+        });
+      })
+    );
+  }
 
 // ======================
 // GROUPING FILTER
@@ -792,11 +795,11 @@ async getRecommendations(productId: string, limit = 10) {
     .createQueryBuilder('product')
     .leftJoinAndSelect('product.category', 'category')
     .leftJoinAndSelect('product.brand', 'brand') 
-
+  
   qb.where('product.id != :id', { id: productId });
 
   // ======================
-  // 🔥 PRIORITAS 1: CATEGORY SAMA
+  // PRIORITAS 1: CATEGORY SAMA
   // ======================
   qb.addSelect(`
     CASE 
