@@ -64,7 +64,6 @@ export class ProductImportService {
   // ==========================
   async generateTemplate(): Promise<Buffer> {
     const headers = [
-
       'id',
       'name','description','price_normal','price_discount','stock','sku_seller',
       'warranty','brand_name','category_name','category_code',
@@ -73,8 +72,9 @@ export class ProductImportService {
       'image_1','image_2','image_3','image_4','image_5','image_6','image_7','image_8','image_9','image_10'
     ];
 
-    // Saya buat 2 contoh: Printer (tanpa socket/ram) dan Motherboard (dengan socket/ram)
+    // <--- SUDAH DITAMBAHKAN randomUUID() DI INDEKS PERTAMA SEBAGAI CONTOH ID --->
     const exampleRow1 = [
+      randomUUID(), // Contoh random ID
       'PRINTER CANON PIXMA G2010','Deskripsi produk disini...',2125000,100000,48,
       '1102127','Garansi Produsen','Canon','Printer & Scanner','830984',
       '','', // socket_type, ram_type kosong
@@ -83,6 +83,7 @@ export class ProductImportService {
     ];
 
     const exampleRow2 = [
+      randomUUID(), // Contoh random ID
       'MOTHERBOARD ASROCK H610M-HDV','Deskripsi mobo...',1100000,0,10,
       'MB-ASR-001','Garansi 3 Tahun','ASRock','Motherboard','MB001',
       'LGA 1700','DDR4', // socket_type dan ram_type terisi
@@ -187,7 +188,11 @@ export class ProductImportService {
         }
 
         const product = new Product();
-        product.product_id = randomUUID();
+        
+        // <--- GENERATE RANDOM ID UNTUK UPLOAD MASSAL --->
+        product.id = row.id || randomUUID(); // Pakai id dari excel jika ada, kalau kosong buat random baru
+        product.product_id = randomUUID(); // Bawaan kode lama tetap dipertahankan
+
         product.name = row.name;
         product.description = row.description;
         product.price_normal = Number(row.price_normal) || 0;
