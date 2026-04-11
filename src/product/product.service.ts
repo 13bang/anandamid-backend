@@ -33,10 +33,20 @@ private ensureDirectories() {
 private deleteFileIfExists(filePath?: string | null) {
   if (!filePath) return;
 
-  const fullPath = path.join(process.cwd(), filePath);
+  // 🔥 hapus leading slash biar ga keluar dari root project
+  const cleanPath = filePath.replace(/^\/+/, "");
+
+  const fullPath = path.join(process.cwd(), cleanPath);
 
   if (fs.existsSync(fullPath)) {
-    fs.unlinkSync(fullPath);
+    try {
+      fs.unlinkSync(fullPath);
+      console.log("Deleted:", fullPath);
+    } catch (err) {
+      console.error("Failed delete:", fullPath);
+    }
+  } else {
+    console.warn("File not found:", fullPath);
   }
 }
 
