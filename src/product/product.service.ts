@@ -163,7 +163,9 @@ private async downloadAndReplace(image: any, createThumb = false) {
       return;
     }
 
-    await fs.promises.writeFile(originalFile, response.data);
+    await sharp(response.data)
+      .jpeg({ quality: 90 })
+      .toFile(originalFile);
 
     if (createThumb) {
       await sharp(response.data)
@@ -1014,6 +1016,21 @@ async getCompatibilityBuilder(query: {
     available_motherboards: motherboards,
     available_rams: rams,
   };
+}
+
+async deletePhysicalImage(filePath?: string | null) {
+  if (!filePath) return;
+
+  const fullPath = path.join(process.cwd(), filePath);
+
+  if (fs.existsSync(fullPath)) {
+    try {
+      await fs.promises.unlink(fullPath);
+      console.log("Deleted file:", fullPath);
+    } catch (err) {
+      console.error("Failed delete file:", fullPath);
+    }
+  }
 }
 
 }

@@ -64,6 +64,8 @@ export class ProductImportService {
   // ==========================
   async generateTemplate(): Promise<Buffer> {
     const headers = [
+
+      'id',
       'name','description','price_normal','price_discount','stock','sku_seller',
       'warranty','brand_name','category_name','category_code',
       'socket_type','ram_type', // <--- TAMBAHAN KOLOM BARU
@@ -143,7 +145,9 @@ export class ProductImportService {
   async uploadProducts(buffer: Buffer) {
     const workbook = XLSX.read(buffer, { type: 'buffer' });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows: any[] = XLSX.utils.sheet_to_json(sheet);
+    const rows: any[] = XLSX.utils.sheet_to_json(sheet, {
+      defval: ""
+    });
     const totalRows = rows.length;
 
     const dbBrands = await this.brandRepo.find();
@@ -266,6 +270,7 @@ export class ProductImportService {
 
     // 2. Susun Headers secara dinamis
     const headers = [
+      'id',
       'name', 'description', 'price_normal', 'price_discount', 'stock', 'sku_seller',
       'warranty', 'brand_name', 'category_name', 'category_code'
     ];
@@ -301,6 +306,7 @@ export class ProductImportService {
       };
 
       const rowData = [
+        product.id,
         product.name,
         product.description,
         product.price_normal,
@@ -417,7 +423,9 @@ export class ProductImportService {
 
     const workbook = XLSX.read(buffer, { type: 'buffer' });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows: any[] = XLSX.utils.sheet_to_json(sheet);
+    const rows: any[] = XLSX.utils.sheet_to_json(sheet, {
+      defval: ""
+    });
     const totalRows = rows.length;
     
     const categories = await this.categoryRepo.find();
@@ -426,14 +434,16 @@ export class ProductImportService {
     const dbBrands = await this.brandRepo.find();
     const brandMap = new Map(dbBrands.map(b => [String(b.name).trim().toLowerCase(), b]));
 
-    const skus = rows.map(r => r.sku_seller ? String(r.sku_seller).trim() : null).filter(Boolean);
+    // const skus = rows.map(r => r.sku_seller ? String(r.sku_seller).trim() : null).filter(Boolean);
+
+    const ids = rows.map(r => r.id).filter(Boolean);
 
     const products = await this.productRepo.find({
-      where: { sku_seller: In(skus) },
+      where: { id: In(ids) },
       relations: ['images', 'category', 'brand']
     });
 
-    const productMap = new Map(products.map(p => [String(p.sku_seller).trim(), p]));
+    const productMap = new Map(products.map(p => [p.id, p]));
 
     const normalize = (val: any) => String(val ?? '').trim();
     const normalizeLower = (val: any) => normalize(val).toLowerCase();
@@ -450,11 +460,11 @@ export class ProductImportService {
           this.progress$.next({ message: `Processing row ${idx + 1}`, percent });
         }
 
-        const excelSku = row.sku_seller ? String(row.sku_seller).trim() : null;
-        if (!excelSku) throw new BadRequestException(`Row ${idx + 1}: SKU seller wajib diisi`);
+        const excelId = row.id;
+        if (!excelId) throw new BadRequestException(`Row ${idx + 1}: ID wajib diisi`);
 
-        let product = productMap.get(excelSku);
-        if (!product) throw new BadRequestException(`Row ${idx + 1}: Product dengan SKU ${excelSku} tidak ditemukan`);
+        let product = productMap.get(excelId);
+        if (!product) throw new BadRequestException(`Row ${idx + 1}: Product dengan ID ${excelId} tidak ditemukan`);
 
         // 1. VALIDASI KATEGORI
         const excelCategoryCode = row.category_code ? normalize(row.category_code) : null;
@@ -522,6 +532,9 @@ export class ProductImportService {
         if (row.price_discount !== undefined) product.price_discount = Number(row.price_discount) || 0;
         if (row.stock !== undefined) product.stock = Number(row.stock) || 0;
         if (row.warranty !== undefined) product.warranty = row.warranty;
+        if (row.sku_seller !== undefined) {
+          product.sku_seller = row.sku_seller ? String(row.sku_seller).trim() : null;
+        }
         
         // <--- UPDATE SOCKET & RAM --->
         // Pakai `!== undefined` agar user bisa mengosongkan nilai di Excel dengan cara menghapus isi sel-nya
@@ -542,6 +555,75 @@ export class ProductImportService {
         });
         await this.productRepo.save(product);
         totalUpdated++;
+
+        // ==========================================
+        // 5. LAKUKAN UPDATE GAMBAR
+        // ==========================================
+        const existingImages = await this.productImageRepo.find({
+          where: { product: { id: product.id } }
+        });
+        const imageMap = new Map(existingImages.map(img => [img.sort_order, img]));
+
+        for (let i = 1; i <= 10; i++) {
+          const sortOrder = i - 1;
+          const excelImageUrl = row[`image_${i}`];
+
+          // Pastikan cell tidak undefined (kolom masih ada di excel)
+          if (excelImageUrl !== undefined) {
+            const rawUrl = excelImageUrl ? String(excelImageUrl).trim() : "";
+            const existingImg = imageMap.get(sortOrder);
+
+            // KASUS 1: URL baru berupa link HTTP (User ingin ganti gambar)
+            if (rawUrl.startsWith("http")) {
+              try {
+                // 1. Simpan info path lama sebelum ditimpa
+                const oldImagePath = existingImg?.image_url;
+                const oldThumbPath = existingImg?.thumbnail_url;
+
+                // 2. Proses download gambar baru
+                const processed = await this.productService.processSingleImage(rawUrl, sortOrder);
+                
+                if (processed) {
+                  if (existingImg) {
+                    // 3. Hapus file fisik LAMA hanya jika path-nya BERBEDA dengan yang baru
+                    // Ini mencegah file yang baru didownload terhapus secara tidak sengaja
+                    if (oldImagePath && oldImagePath !== processed.image_url) {
+                      await this.productService.deletePhysicalImage(oldImagePath);
+                    }
+                    if (oldThumbPath && oldThumbPath !== processed.thumbnail_url) {
+                      await this.productService.deletePhysicalImage(oldThumbPath);
+                    }
+
+                    // 4. Update database
+                    existingImg.image_url = processed.image_url;
+                    existingImg.thumbnail_url = processed.thumbnail_url;
+                    await this.productImageRepo.save(existingImg);
+                    
+                    console.log(`✅ Image updated for SKU ${product.sku_seller} (Order: ${sortOrder})`);
+                  } else {
+                    // Buat relasi gambar baru jika sebelumnya kosong
+                    await this.productImageRepo.save({
+                      product: product,
+                      image_url: processed.image_url,
+                      thumbnail_url: processed.thumbnail_url,
+                      sort_order: sortOrder,
+                    });
+                  }
+                }
+              } catch (imgErr) {
+                this.logger.error(`Gagal memproses gambar ${rawUrl} untuk produk SKU: ${product.sku_seller}`, imgErr.stack);
+              }
+            }
+            // KASUS 2: Cell gambar dikosongkan secara sengaja di Excel
+            else if (rawUrl === "" && existingImg) {
+                await this.productService.deletePhysicalImage(existingImg.image_url);
+                await this.productService.deletePhysicalImage(existingImg.thumbnail_url);
+
+                await this.productImageRepo.delete(existingImg.id);
+              
+            }
+          }
+        }
 
       } catch (err: any) {
         errors.push(err.message);

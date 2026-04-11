@@ -4,10 +4,15 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ProductImportService } from './product-import.service';
 import type { Response } from 'express';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guards';
+import { TemplateCacheService } from './template-cache.service';
+
 
 @Controller('product-import')
 export class ProductImportController {
-  constructor(private readonly productImportService: ProductImportService) {}
+  constructor(
+    private readonly productImportService: ProductImportService,
+    private readonly templateCacheService: TemplateCacheService,
+  ) {}
 
   @Get('template')
   @UseGuards(JwtAuthGuard)
@@ -27,22 +32,81 @@ export class ProductImportController {
   @UseGuards(JwtAuthGuard)
   async downloadUpdateTemplate(
     @Query('category_code') categoryCode: string,
-    @Query('only_with_sku') onlyWithSku: string, // Ambil dari query
+    @Query('only_with_sku') onlyWithSku: string,
+    @Query('force') force: string, // 👈 TAMBAH
     @Res() res: Response
   ) {
     const categoryCodes = categoryCode ? categoryCode.split(',') : undefined;
-    
-    // Konversi string 'true'/'false' ke boolean murni
+    const isOnlySku = onlyWithSku === undefined ? true : onlyWithSku === 'true';
+    const isForce = force === 'true';
+
+    let filePath: string;
+
+    if (!isForce) {
+      try {
+        filePath = await this.templateCacheService.get(categoryCodes, isOnlySku);
+        return res.download(filePath, 'product-update-template.xlsx');
+      } catch {}
+    }
+
+    // 👇 selalu generate baru kalau force=true
+    const buffer = await this.productImportService.generateUpdateTemplate(
+      categoryCodes,
+      isOnlySku
+    );
+
+    filePath = await this.templateCacheService.save(
+      buffer,
+      categoryCodes,
+      isOnlySku
+    );
+
+    return res.download(filePath, 'product-update-template.xlsx');
+  }
+
+  // ==========================
+  // CEK STATUS TEMPLATE (UNTUK COUNTDOWN)
+  // ==========================
+  @Get('template-update/status')
+  @UseGuards(JwtAuthGuard)
+  async getTemplateStatus(
+    @Query('category_code') categoryCode: string,
+    @Query('only_with_sku') onlyWithSku: string,
+  ) {
+    const categoryCodes = categoryCode ? categoryCode.split(',') : undefined;
     const isOnlySku = onlyWithSku === undefined ? true : onlyWithSku === 'true';
 
-    const buffer = await this.productImportService.generateUpdateTemplate(categoryCodes, isOnlySku);
+    try {
+      const data = await this.templateCacheService.getWithMeta(categoryCodes, isOnlySku);
 
-    res.set({
-      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': 'attachment; filename=product-update-template.xlsx',
-    });
+      return {
+        available: true,
+        expires_at: data.expiresAt,
+      };
+    } catch {
+      return {
+        available: false,
+        expires_at: null,
+      };
+    }
+  }
 
-    res.send(buffer);
+  // ==========================
+  // DOWNLOAD FILE CACHE SAJA (TANPA GENERATE)
+  // ==========================
+  @Get('template-update/download')
+  @UseGuards(JwtAuthGuard)
+  async downloadCachedTemplate(
+    @Query('category_code') categoryCode: string,
+    @Query('only_with_sku') onlyWithSku: string,
+    @Res() res: Response
+  ) {
+    const categoryCodes = categoryCode ? categoryCode.split(',') : undefined;
+    const isOnlySku = onlyWithSku === undefined ? true : onlyWithSku === 'true';
+
+    const filePath = await this.templateCacheService.get(categoryCodes, isOnlySku);
+
+    return res.download(filePath, 'product-update-template.xlsx');
   }
 
   @Post('upload')
