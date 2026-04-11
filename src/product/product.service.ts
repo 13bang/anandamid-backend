@@ -346,6 +346,7 @@ const duplicateTotal = Number(duplicateTotalRaw[0]?.count || 0);
 const qb = this.productRepository
 .createQueryBuilder('product')
 .leftJoinAndSelect('product.category', 'category')
+.leftJoinAndSelect('category.grouping', 'grouping')
 .leftJoinAndSelect('product.brand', 'brand')
 
 qb.leftJoin(

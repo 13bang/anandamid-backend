@@ -19,10 +19,9 @@ import { CreateGroupingDto } from './dto/create-grouping.dto';
 import { UpdateGroupingDto } from './dto/update-grouping.dto';
 import { AssignCategoryDto } from './dto/assign-category.dto';
 
-// Konfigurasi storage agar file tersimpan di folder dan punya nama unik
 const multerOptions = {
   storage: diskStorage({
-    destination: './uploads', // Pastikan folder ini sudah dibuat di root project
+    destination: './uploads',
     filename: (req, file, cb) => {
       const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
       cb(null, `${file.fieldname}-${uniqueSuffix}${extname(file.originalname)}`);
@@ -98,8 +97,6 @@ export class GroupingController {
 
     return this.service.update(id, dto);
   }
-
-  // ================= sisanya tetap sama =================
 
   @Patch(':id/assign')
   assign(@Param('id') id: string, @Body() dto: AssignCategoryDto) {
