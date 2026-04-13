@@ -1,5 +1,4 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
-// import * as XLSX from 'xlsx';
 import * as XLSX from 'xlsx-js-style';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
@@ -8,15 +7,11 @@ import { Category } from '../category/entities/category.entity';
 import { ProductImage } from '../product-image/entities/product-image.entity';
 import { Brand } from '../brand/entities/brand.entity';
 import { randomUUID } from 'crypto';
-import { Subject } from 'rxjs';
 import { ProductService } from 'src/product/product.service';
-
-import * as crypto from "crypto";
+import { ProductImportProgressService } from './product-import-progress.service';
 
 @Injectable()
 export class ProductImportService {
-  progress$ = new Subject<{ message: string; percent: number }>();
-
   private readonly logger = new Logger(ProductImportService.name);
 
   constructor(
@@ -31,6 +26,8 @@ export class ProductImportService {
 
     @InjectRepository(Brand)
     private readonly brandRepo: Repository<Brand>,
+
+    private readonly progressService: ProductImportProgressService,
 
     private readonly productService: ProductService,
   ) {}
@@ -72,12 +69,11 @@ export class ProductImportService {
       'image_1','image_2','image_3','image_4','image_5','image_6','image_7','image_8','image_9','image_10'
     ];
 
-    // <--- SUDAH DITAMBAHKAN randomUUID() DI INDEKS PERTAMA SEBAGAI CONTOH ID --->
     const exampleRow1 = [
-      randomUUID(), // Contoh random ID
+      randomUUID(), 
       'PRINTER CANON PIXMA G2010','Deskripsi produk disini...',2125000,100000,48,
       '1102127','Garansi Produsen','Canon','Printer & Scanner','830984',
-      '','', // socket_type, ram_type kosong
+      '','', 
       true,false,
       'https://example.com/image1.jpg','','','','','','','','',''
     ];
@@ -122,7 +118,6 @@ export class ProductImportService {
     // ===== SOCKET & RAM SHEET (DATA UNIK DARI DB) =====
     const { sockets, rams } = await this.getDistinctTypes();
     
-    // Jika db masih kosong, beri contoh data sementara
     const finalSockets = sockets.length > 0 ? sockets : ['LGA 1700', 'AM4', 'AM5'];
     const finalRams = rams.length > 0 ? rams : ['DDR4', 'DDR5'];
 
@@ -135,7 +130,7 @@ export class ProductImportService {
     XLSX.utils.book_append_sheet(workbook, categorySheet, "Categories");
     XLSX.utils.book_append_sheet(workbook, brandSheet, "Brands");
     XLSX.utils.book_append_sheet(workbook, socketSheet, "Socket Type"); 
-    XLSX.utils.book_append_sheet(workbook, ramSheet, "RAM Type");    
+    XLSX.utils.book_append_sheet(workbook, ramSheet, "RAM Type");   
 
     return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
   }
@@ -149,7 +144,6 @@ export class ProductImportService {
     const rows: any[] = XLSX.utils.sheet_to_json(sheet, {
       defval: ""
     });
-    const totalRows = rows.length;
 
     const dbBrands = await this.brandRepo.find();
     const brandMap = new Map(dbBrands.map(b => [b.name.trim().toLowerCase(), b]));
@@ -160,13 +154,18 @@ export class ProductImportService {
     for (let idx = 0; idx < rows.length; idx++) {
       const row = rows[idx];
 
-      try {
-        const percent = Math.floor(((idx + 1) / totalRows) * 100);
+      // ==========================
+      // KIRIM PROGRESS SSE
+      // ==========================
+      const progress = Math.round(((idx + 1) / rows.length) * 100);
+      this.progressService.sendProgress(
+        `Memproses upload: ${idx + 1} dari ${rows.length} produk`, 
+        progress
+      );
 
+      try {
         if (idx % 50 === 0) {
-          const msg = `Processing row ${idx + 1}`;
-          this.logger.log(msg);
-          this.progress$.next({ message: msg, percent });
+          this.logger.log(`Processing upload row ${idx + 1}`);
         }
 
         if (!row.sku_seller) throw new BadRequestException(`Row ${idx + 1}: SKU seller wajib diisi`);
@@ -189,10 +188,8 @@ export class ProductImportService {
 
         const product = new Product();
         
-        // <--- GENERATE RANDOM ID UNTUK UPLOAD MASSAL --->
-        product.id = row.id || randomUUID(); // Pakai id dari excel jika ada, kalau kosong buat random baru
-        product.product_id = randomUUID(); // Bawaan kode lama tetap dipertahankan
-
+        product.id = row.id || randomUUID();
+        product.product_id = randomUUID();
         product.name = row.name;
         product.description = row.description;
         product.price_normal = Number(row.price_normal) || 0;
@@ -201,7 +198,6 @@ export class ProductImportService {
         product.sku_seller = row.sku_seller;
         product.warranty = row.warranty;
         
-        // <--- ASSIGN SOCKET DAN RAM --->
         product.socket_type = row.socket_type ? String(row.socket_type).trim() : null;
         product.ram_type = row.ram_type ? String(row.ram_type).trim() : null;
 
@@ -232,18 +228,26 @@ export class ProductImportService {
       }
     }
 
+    // ==========================
+    // FINAL PROGRESS (SELESAI)
+    // ==========================
+    this.progressService.sendProgress('Upload selesai!', 100);
+
     if (errors.length > 0) {
-      throw new BadRequestException({ message: 'Upload gagal', total_error: errors.length, errors });
+      throw new BadRequestException({ 
+        message: 'Upload selesai dengan beberapa error', 
+        total_error: errors.length, 
+        errors,
+        total_created: totalCreated 
+      });
     }
 
-    this.progress$.next({ message: "Upload selesai", percent: 100 });
     return { message: 'Upload selesai', total_created: totalCreated };
   }
 
-// ==========================
+  // ==========================
   // GENERATE TEMPLATE UPDATE
   // ==========================
-  // Tambahkan parameter onlyWithSku (default true)
   async generateUpdateTemplate(categoryCodes?: string[], onlyWithSku: boolean = true): Promise<Buffer> {
     const query = this.productRepo
       .createQueryBuilder("product")
@@ -266,21 +270,18 @@ export class ProductImportService {
 
     const products = await query.getMany();
 
-    // 1. Cek apakah di dalam list produk ini ada kategori RAM, Mobo, atau Processor
     const hardwareKeywords = ['ram', 'memory', 'motherboard', 'mobo', 'processor', 'cpu'];
     const includeHardwareCols = products.some(p => {
       const catName = (p.category?.name || '').toLowerCase();
       return hardwareKeywords.some(keyword => catName.includes(keyword));
     });
 
-    // 2. Susun Headers secara dinamis
     const headers = [
       'id',
       'name', 'description', 'price_normal', 'price_discount', 'stock', 'sku_seller',
       'warranty', 'brand_name', 'category_name', 'category_code'
     ];
 
-    // Sisipkan kolom hardware jika kondisinya terpenuhi
     if (includeHardwareCols) {
       headers.push('socket_type', 'ram_type');
     }
@@ -291,7 +292,6 @@ export class ProductImportService {
       'image_6', 'image_7', 'image_8', 'image_9', 'image_10'
     );
 
-    // 3. Susun Data Rows secara dinamis
     const rows = products.map(product => {
       const images = Array(10).fill("");
 
@@ -324,7 +324,6 @@ export class ProductImportService {
         product.category?.code
       ];
 
-      // Sisipkan data hardware jika headers-nya juga disisipkan
       if (includeHardwareCols) {
         rowData.push(product.socket_type || '', product.ram_type || '');
       }
@@ -424,22 +423,17 @@ export class ProductImportService {
   // UPDATE PRODUCTS
   // ==========================
   async updateProducts(buffer: Buffer) {
-    this.progress$.next({ message: "Reading Excel file...", percent: 0 });
-
     const workbook = XLSX.read(buffer, { type: 'buffer' });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows: any[] = XLSX.utils.sheet_to_json(sheet, {
       defval: ""
     });
-    const totalRows = rows.length;
     
     const categories = await this.categoryRepo.find();
     const categoryMap = new Map(categories.map(c => [String(c.code).trim(), c]));
 
     const dbBrands = await this.brandRepo.find();
     const brandMap = new Map(dbBrands.map(b => [String(b.name).trim().toLowerCase(), b]));
-
-    // const skus = rows.map(r => r.sku_seller ? String(r.sku_seller).trim() : null).filter(Boolean);
 
     const ids = rows.map(r => r.id).filter(Boolean);
 
@@ -460,9 +454,8 @@ export class ProductImportService {
       const row = rows[idx];
 
       try {
-        const percent = Math.floor(((idx + 1) / totalRows) * 100);
         if (idx % 50 === 0) {
-          this.progress$.next({ message: `Processing row ${idx + 1}`, percent });
+          this.logger.log(`Processing update row ${idx + 1}`);
         }
 
         const excelId = row.id;
@@ -471,17 +464,15 @@ export class ProductImportService {
         let product = productMap.get(excelId);
         if (!product) throw new BadRequestException(`Row ${idx + 1}: Product dengan ID ${excelId} tidak ditemukan`);
 
-        // 1. VALIDASI KATEGORI
+        // ==========================
+        // VALIDASI CATEGORY
+        // ==========================
         const excelCategoryCode = row.category_code ? normalize(row.category_code) : null;
 
         if (excelCategoryCode) {
           const category = categoryMap.get(excelCategoryCode);
 
           if (!category) {
-            console.log("❌ CATEGORY TIDAK KETEMU:", {
-              excel: excelCategoryCode,
-              available: [...categoryMap.keys()].slice(0, 5)
-            });
             throw new BadRequestException(`Row ${idx + 1}: Category code ${excelCategoryCode} tidak ditemukan`);
           }
 
@@ -490,108 +481,87 @@ export class ProductImportService {
             const dbCategoryName = normalizeLower(category.name);
 
             if (dbCategoryName !== excelCategoryName) {
-              console.log("❌ CATEGORY NAME MISMATCH:", {
-                excel: excelCategoryName,
-                db: dbCategoryName
-              });
               throw new BadRequestException(`Row ${idx + 1}: Category name tidak cocok untuk code ${excelCategoryCode}`);
             }
           }
 
-          console.log("✅ CATEGORY UPDATE:", {
-            sku: product.sku_seller,
-            from: product.category?.code,
-            to: category.code
-          });
-
           product.category = category;
         }
 
-        // 2. VALIDASI BRAND
+        // ==========================
+        // VALIDASI BRAND
+        // ==========================
         const excelBrandName = row.brand_name ? normalizeLower(row.brand_name) : null;
 
         if (excelBrandName) {
           const productBrand = brandMap.get(excelBrandName);
 
           if (!productBrand) {
-            console.log("❌ BRAND TIDAK KETEMU:", {
-              excel: excelBrandName,
-              available: [...brandMap.keys()].slice(0, 5)
-            });
             throw new BadRequestException(`Row ${idx + 1}: Brand '${row.brand_name}' tidak ditemukan`);
           }
-
-          console.log("✅ BRAND UPDATE:", {
-            sku: product.sku_seller,
-            from: product.brand?.name,
-            to: productBrand.name
-          });
 
           product.brand = productBrand;
         }
 
-        // 3. ASSIGN DATA LAINNYA
+        // ==========================
+        // UPDATE DATA
+        // ==========================
         if (row.name !== undefined) product.name = row.name;
         if (row.description !== undefined) product.description = row.description;
         if (row.price_normal !== undefined) product.price_normal = Number(row.price_normal) || 0;
         if (row.price_discount !== undefined) product.price_discount = Number(row.price_discount) || 0;
         if (row.stock !== undefined) product.stock = Number(row.stock) || 0;
         if (row.warranty !== undefined) product.warranty = row.warranty;
+
         if (row.sku_seller !== undefined) {
           product.sku_seller = row.sku_seller ? String(row.sku_seller).trim() : null;
         }
-        
-        // <--- UPDATE SOCKET & RAM --->
-        // Pakai `!== undefined` agar user bisa mengosongkan nilai di Excel dengan cara menghapus isi sel-nya
-        if (row.socket_type !== undefined) product.socket_type = row.socket_type ? String(row.socket_type).trim() : null;
-        if (row.ram_type !== undefined) product.ram_type = row.ram_type ? String(row.ram_type).trim() : null;
 
-        if (row.is_active !== undefined) product.is_active = row.is_active === true || row.is_active === 'true';
-        if (row.is_popular !== undefined) product.is_popular = row.is_popular === true || row.is_popular === 'true';
+        if (row.socket_type !== undefined) {
+          product.socket_type = row.socket_type ? String(row.socket_type).trim() : null;
+        }
 
-        // 4. SAVE KE DATABASE
-        console.log("🚀 UPDATE PRODUCT:", {
-          sku: product.sku_seller,
-          name: product.name,
-          category: product.category?.code,
-          brand: product.brand?.name,
-          socket: product.socket_type,
-          ram: product.ram_type
-        });
+        if (row.ram_type !== undefined) {
+          product.ram_type = row.ram_type ? String(row.ram_type).trim() : null;
+        }
+
+        if (row.is_active !== undefined) {
+          product.is_active = row.is_active === true || row.is_active === 'true';
+        }
+
+        if (row.is_popular !== undefined) {
+          product.is_popular = row.is_popular === true || row.is_popular === 'true';
+        }
+
         await this.productRepo.save(product);
         totalUpdated++;
 
-        // ==========================================
-        // 5. LAKUKAN UPDATE GAMBAR
-        // ==========================================
+        // ==========================
+        // HANDLE IMAGES
+        // ==========================
         const existingImages = await this.productImageRepo.find({
           where: { product: { id: product.id } }
         });
+
         const imageMap = new Map(existingImages.map(img => [img.sort_order, img]));
 
         for (let i = 1; i <= 10; i++) {
           const sortOrder = i - 1;
           const excelImageUrl = row[`image_${i}`];
 
-          // Pastikan cell tidak undefined (kolom masih ada di excel)
           if (excelImageUrl !== undefined) {
             const rawUrl = excelImageUrl ? String(excelImageUrl).trim() : "";
             const existingImg = imageMap.get(sortOrder);
 
-            // KASUS 1: URL baru berupa link HTTP (User ingin ganti gambar)
             if (rawUrl.startsWith("http")) {
               try {
-                // 1. Simpan info path lama sebelum ditimpa
                 const oldImagePath = existingImg?.image_url;
                 const oldThumbPath = existingImg?.thumbnail_url;
 
-                // 2. Proses download gambar baru
                 const processed = await this.productService.processSingleImage(rawUrl, sortOrder);
-                
+
                 if (processed) {
                   if (existingImg) {
-                    // 3. Hapus file fisik LAMA hanya jika path-nya BERBEDA dengan yang baru
-                    // Ini mencegah file yang baru didownload terhapus secara tidak sengaja
                     if (oldImagePath && oldImagePath !== processed.image_url) {
                       await this.productService.deletePhysicalImage(oldImagePath);
                     }
@@ -599,33 +569,26 @@ export class ProductImportService {
                       await this.productService.deletePhysicalImage(oldThumbPath);
                     }
 
-                    // 4. Update database
                     existingImg.image_url = processed.image_url;
                     existingImg.thumbnail_url = processed.thumbnail_url;
                     await this.productImageRepo.save(existingImg);
-                    
-                    console.log(`✅ Image updated for SKU ${product.sku_seller} (Order: ${sortOrder})`);
                   } else {
-                    // Buat relasi gambar baru jika sebelumnya kosong
                     await this.productImageRepo.save({
-                      product: product,
+                      product,
                       image_url: processed.image_url,
                       thumbnail_url: processed.thumbnail_url,
                       sort_order: sortOrder,
                     });
                   }
                 }
-              } catch (imgErr) {
-                this.logger.error(`Gagal memproses gambar ${rawUrl} untuk produk SKU: ${product.sku_seller}`, imgErr.stack);
+              } catch (imgErr: any) {
+                this.logger.error(`Gagal memproses gambar ${rawUrl}`, imgErr.stack);
               }
-            }
-            // KASUS 2: Cell gambar dikosongkan secara sengaja di Excel
+            } 
             else if (rawUrl === "" && existingImg) {
-                await this.productService.deletePhysicalImage(existingImg.image_url);
-                await this.productService.deletePhysicalImage(existingImg.thumbnail_url);
-
-                await this.productImageRepo.delete(existingImg.id);
-              
+              await this.productService.deletePhysicalImage(existingImg.image_url);
+              await this.productService.deletePhysicalImage(existingImg.thumbnail_url);
+              await this.productImageRepo.delete(existingImg.id);
             }
           }
         }
@@ -635,6 +598,8 @@ export class ProductImportService {
       }
     }
 
+    this.progressService.sendProgress('Selesai!', 100);
+
     if (errors.length > 0) {
       throw new BadRequestException({
         message: 'Update selesai dengan beberapa error',
@@ -643,7 +608,6 @@ export class ProductImportService {
       });
     }
 
-    this.progress$.next({ message: "Update selesai", percent: 100 });
     return { message: 'Update selesai', total_updated: totalUpdated };
   }
 }

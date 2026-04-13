@@ -9,6 +9,7 @@ import { ProductImage } from 'src/product-image/entities/product-image.entity';
 import { ProductModule } from 'src/product/product.module';
 import { Brand } from 'src/brand/entities/brand.entity';
 import { TemplateCacheService } from './template-cache.service'; 
+import { ProductImportProgressService } from './product-import-progress.service';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { TemplateCacheService } from './template-cache.service';
   controllers: [ProductImportController],
   providers: [
     ProductImportService,
+    ProductImportProgressService,
     TemplateCacheService, 
   ],
 })

@@ -1,18 +1,27 @@
-import { Controller, Get, Res, Post, UploadedFile, UseInterceptors, UseGuards, Sse, Query } from '@nestjs/common';
+import { Controller, Get, Res, Post, UploadedFile, UseInterceptors, UseGuards, Query, Sse, MessageEvent } from '@nestjs/common';
 import { Observable, map } from 'rxjs';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ProductImportService } from './product-import.service';
 import type { Response } from 'express';
 import { JwtAuthGuard } from 'src/auth/guards/jwt.guards';
 import { TemplateCacheService } from './template-cache.service';
-
+import { ProductImportProgressService } from './product-import-progress.service';
 
 @Controller('product-import')
 export class ProductImportController {
   constructor(
     private readonly productImportService: ProductImportService,
     private readonly templateCacheService: TemplateCacheService,
+    private readonly progressService: ProductImportProgressService,
   ) {}
+
+  @Sse('progress')
+  @UseGuards(JwtAuthGuard)
+  sendProgress(): Observable<MessageEvent> {
+    return this.progressService.getEventStream().pipe(
+      map((data) => ({ data } as MessageEvent)),
+    );
+  }
 
   @Get('template')
   @UseGuards(JwtAuthGuard)
@@ -33,7 +42,7 @@ export class ProductImportController {
   async downloadUpdateTemplate(
     @Query('category_code') categoryCode: string,
     @Query('only_with_sku') onlyWithSku: string,
-    @Query('force') force: string, // 👈 TAMBAH
+    @Query('force') force: string,
     @Res() res: Response
   ) {
     const categoryCodes = categoryCode ? categoryCode.split(',') : undefined;
@@ -49,7 +58,6 @@ export class ProductImportController {
       } catch {}
     }
 
-    // 👇 selalu generate baru kalau force=true
     const buffer = await this.productImportService.generateUpdateTemplate(
       categoryCodes,
       isOnlySku
@@ -122,16 +130,4 @@ export class ProductImportController {
   async updateProducts(@UploadedFile() file: Express.Multer.File) {
     return this.productImportService.updateProducts(file.buffer);
   }
-
-  @Sse('progress')
-  progress(): Observable<MessageEvent> {
-    return this.productImportService.progress$.pipe(
-      map((msg) => {
-        return {
-          data: msg,
-        } as MessageEvent;
-      }),
-    );
-  }
-
 }
