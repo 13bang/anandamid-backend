@@ -121,13 +121,21 @@ export class ProductImportController {
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor('file'))
   async uploadProducts(@UploadedFile() file: Express.Multer.File) {
-    return this.productImportService.uploadProducts(file.buffer);
+    this.productImportService.uploadProducts(file.buffer).catch(err => {
+      console.error('Background upload error:', err);
+    });
+
+     return { message: 'File diterima. Proses upload sedang berjalan di background.' };
   }
 
   @Post('update')
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor('file'))
   async updateProducts(@UploadedFile() file: Express.Multer.File) {
-    return this.productImportService.updateProducts(file.buffer);
+    this.productImportService.updateProducts(file.buffer).catch(err => {
+      console.error('Background update error:', err);
+    });
+
+    return { message: 'File diterima. Proses update sedang berjalan di background.' };
   }
 }

@@ -229,20 +229,22 @@ export class ProductImportService {
     }
 
     // ==========================
-    // FINAL PROGRESS (SELESAI)
+    // FINAL PROGRESS UPLOAD (SELESAI)
     // ==========================
-    this.progressService.sendProgress('Upload selesai!', 100);
-
     if (errors.length > 0) {
-      throw new BadRequestException({ 
-        message: 'Upload selesai dengan beberapa error', 
-        total_error: errors.length, 
-        errors,
+      this.progressService.sendProgress('Upload selesai dengan beberapa error', 100, {
+        status: 'ERROR',
+        action: 'upload',
+        errors: errors,
         total_created: totalCreated 
       });
+    } else {
+      this.progressService.sendProgress('Upload selesai!', 100, {
+        status: 'SUCCESS',
+        action: 'upload',
+        total_processed: totalCreated
+      });
     }
-
-    return { message: 'Upload selesai', total_created: totalCreated };
   }
 
   // ==========================
@@ -598,16 +600,21 @@ export class ProductImportService {
       }
     }
 
-    this.progressService.sendProgress('Selesai!', 100);
-
+    // ==========================
+    // FINAL PROGRESS UPDATE (SELESAI)
+    // ==========================
     if (errors.length > 0) {
-      throw new BadRequestException({
-        message: 'Update selesai dengan beberapa error',
-        total_error: errors.length,
-        errors,
+      this.progressService.sendProgress('Update selesai dengan beberapa error', 100, {
+        status: 'ERROR',
+        action: 'update',
+        errors: errors,
+      });
+    } else {
+      this.progressService.sendProgress('Update selesai!', 100, {
+        status: 'SUCCESS',
+        action: 'update',
+        total_processed: totalUpdated
       });
     }
-
-    return { message: 'Update selesai', total_updated: totalUpdated };
   }
 }
