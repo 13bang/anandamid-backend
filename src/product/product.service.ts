@@ -8,6 +8,7 @@ import { UpdateProductDto } from './dto/update.product.dto';
 import { Product } from './entities/product.entity';
 import { Category } from '../category/entities/category.entity';
 import { Brand } from 'src/brand/entities/brand.entity';
+import { ProductImage } from 'src/product-image/entities/product-image.entity';
 
 import { Repository, Brackets, In } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -59,6 +60,9 @@ constructor(
 
   @InjectRepository(Brand)
   private brandRepository: Repository<Brand>,
+
+  @InjectRepository(ProductImage)
+    private productImageRepository: Repository<ProductImage>,
 ) {}
 
 private uploadBasePath = path.join(process.cwd(), 'uploads', 'products');
@@ -1043,5 +1047,54 @@ async deletePhysicalImage(filePath?: string | null) {
     }
   }
 }
+
+  async deleteProductImage(imageId: string): Promise<void> {
+    // 1. Cari gambar beserta relasi produknya
+    const image = await this.productImageRepository.findOne({
+      where: { id: imageId },
+      relations: ['product'], // Kita butuh ID produk untuk mereset gambar lainnya
+    });
+
+    if (!image) {
+      throw new NotFoundException('Image not found');
+    }
+
+    const productId = image.product.id;
+
+    // 2. Hapus file fisik dari storage
+    this.deleteFileIfExists(image.image_url);
+    this.deleteFileIfExists(image.thumbnail_url);
+
+    // 3. Hapus data gambar dari database
+    await this.productImageRepository.remove(image);
+
+    // ==========================================
+    // 4. LOGIC RE-SEQUENCE SORT ORDER
+    // ==========================================
+    
+    // Ambil semua gambar yang tersisa untuk produk tersebut, urutkan dari yang terkecil
+    const remainingImages = await this.productImageRepository.find({
+      where: { product: { id: productId } },
+      order: { sort_order: 'ASC' },
+    });
+
+    // Jika masih ada gambar tersisa, reset urutannya mulai dari 0
+    if (remainingImages.length > 0) {
+      let hasChanges = false;
+
+      for (let i = 0; i < remainingImages.length; i++) {
+        // Jika sort_order saat ini tidak sesuai dengan index (misal 1 harusnya 0)
+        if (remainingImages[i].sort_order !== i) {
+          remainingImages[i].sort_order = i;
+          hasChanges = true;
+        }
+      }
+
+      // Jika ada perubahan urutan, simpan perubahannya ke database
+      if (hasChanges) {
+        await this.productImageRepository.save(remainingImages);
+      }
+    }
+  }
 
 }

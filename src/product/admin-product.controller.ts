@@ -68,4 +68,10 @@ export class AdminProductController {
     return this.productService.removeBrand(id);
   }
 
+  @Delete('image/:imageId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteImage(@Param('imageId') imageId: string): Promise<void> {
+    await this.productService.deleteProductImage(imageId);
+  }
+
 }
