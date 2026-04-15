@@ -1,10 +1,10 @@
-import { Controller, Post, Body, Req } from '@nestjs/common';
+import { Controller, Post, Body, Req, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import type { Request } from 'express';
+import { JwtAuthGuard } from './guards/jwt.guards';
 
 @Controller('auth')
 export class AuthController {
-
   constructor(private authService: AuthService) {}
 
   @Post('login')
@@ -12,14 +12,12 @@ export class AuthController {
     @Body() body: { username: string; password: string },
     @Req() req: Request,
   ) {
-
     return this.authService.login(
       body.username,
       body.password,
       req.ip,
       req.headers['user-agent'],
     );
-
   }
 
   @Post('refresh')
@@ -29,11 +27,9 @@ export class AuthController {
     return this.authService.refresh(body.refresh_token);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Post('logout')
-  async logout(
-    @Body() body: { id: string },
-  ) {
-    return this.authService.logout(body.id);
+  async logout(@Req() req: any) {
+    return this.authService.logout(req.user.id);
   }
-
 }
