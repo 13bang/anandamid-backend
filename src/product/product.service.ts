@@ -317,6 +317,7 @@ brand,
 sort,
 is_popular,
 is_active,
+is_promo,
 min_price,
 max_price,
 only_duplicate,
@@ -463,11 +464,19 @@ if (category_ids) {
 // POPULAR FILTER
 // ======================
 if (is_popular !== undefined) {
-const isPopularParsed = is_popular === 'true';
+  const isPopularParsed = is_popular === 'true';
 
-qb.andWhere('product.is_popular = :is_popular', {
-is_popular: isPopularParsed,
-});
+  qb.andWhere('product.is_popular = :is_popular', {
+    is_popular: isPopularParsed,
+  });
+}
+
+// ======================
+// PROMO / DISCOUNT FILTER 
+// ======================
+if (is_promo === 'true') {
+  // Memfilter produk yang memiliki nilai diskon lebih dari 0
+  qb.andWhere('product.price_discount > 0');
 }
 
 // ======================
@@ -626,10 +635,13 @@ const data = entities.map((product) => {
     Number(product.price_normal || 0) -
     Number(product.price_discount || 0);
 
+  const isPromo = Number(product.price_discount || 0) > 0;
+
   return {
     ...product,
 
     final_price: finalPrice, 
+    is_promo: isPromo,
 
     description_raw: parsed.description_raw,
     specifications: parsed.specifications,

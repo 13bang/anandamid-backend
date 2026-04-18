@@ -20,6 +20,9 @@ import { ImageDownloadService } from './image-download/image-download.service';
 import { ImageDownloadModule } from './image-download/image-download.module';
 import { ContactModule } from './contact/contact.module';
 import { TiktokModule } from './tiktok/tiktok.module';
+import { UserService } from './user/user.service';
+import { UserModule } from './user/user.module';
+import { CartModule } from './cart/cart.module';
 
 @Module({
   imports: [
@@ -42,7 +45,9 @@ import { TiktokModule } from './tiktok/tiktok.module';
     BrandModule,
     ImageDownloadModule,
     ContactModule,
-    TiktokModule, 
+    TiktokModule,
+    UserModule,
+    CartModule, 
   ],
   controllers: [AppController], 
   providers: [AppService],     

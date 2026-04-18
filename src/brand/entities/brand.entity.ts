@@ -20,6 +20,9 @@ export class Brand {
   @Column({ type: "text", nullable: true })
   image_url: string | null;
 
+  @Column({ type: "boolean", default: true })
+  is_active: boolean;
+
   @CreateDateColumn()
   created_at: Date;
 

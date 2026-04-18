@@ -22,7 +22,7 @@ export class BrandService {
     private productRepository: Repository<Product>,
   ) {}
 
-  async create(dto: CreateBrandDto, image?: string | null) {
+  async create(dto: any, image?: string | null) {
     const exist = await this.brandRepository.findOne({
       where: { name: dto.name },
     });
@@ -33,28 +33,34 @@ export class BrandService {
 
     const brand = this.brandRepository.create({
       name: dto.name,
+      is_active: dto.is_active !== undefined ? dto.is_active : true,
       image_url: image || null,
     });
 
     return this.brandRepository.save(brand);
   }
 
-  async findAll() {
-    const brands = await this.brandRepository
+  async findAll(isActiveParam?: string) {
+    const qb = this.brandRepository
       .createQueryBuilder("brand")
       .leftJoin("brand.products", "product")
       .select([
         "brand.id",
         "brand.name",
         "brand.image_url",
+        "brand.is_active", 
         "brand.created_at",
         "brand.updated_at",
-
         "product.id",
         "product.name",
       ])
-      .orderBy("brand.name", "ASC")
-      .getMany();
+      .orderBy("brand.name", "ASC");
+
+    if (isActiveParam === 'true') {
+      qb.where("brand.is_active = :isActive", { isActive: true });
+    }
+
+    const brands = await qb.getMany();
 
     return brands.map(b => ({
       ...b,
@@ -78,7 +84,7 @@ export class BrandService {
     return brand;
   }
 
-  async update(id: string, dto: UpdateBrandDto, image?: string) {
+  async update(id: string, dto: any, image?: string) {
     const brand = await this.findOne(id);
 
     if (dto.name) {
@@ -91,7 +97,11 @@ export class BrandService {
       }
     }
 
-    Object.assign(brand, dto);
+    if (dto.is_active !== undefined) {
+       brand.is_active = dto.is_active === 'true' || dto.is_active === true;
+    }
+    
+    if (dto.name) brand.name = dto.name;
 
     if (image) {
       brand.image_url = image;
@@ -102,7 +112,6 @@ export class BrandService {
 
   async delete(id: string) {
     const brand = await this.findOne(id);
-
     await this.brandRepository.remove(brand);
   }
 

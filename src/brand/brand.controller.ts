@@ -9,6 +9,7 @@ import {
   UploadedFile,
   UseInterceptors,
   Patch,
+  Query, // 🔥 Jangan lupa import Query
 } from "@nestjs/common";
 
 import { FileInterceptor } from "@nestjs/platform-express";
@@ -39,18 +40,21 @@ export class BrandController {
   @UseInterceptors(FileInterceptor("image", { storage: brandStorage }))
   create(
     @Body("name") name: string,
+    @Body("is_active") isActiveStr?: string, 
     @UploadedFile() file?: Express.Multer.File,
   ) {
     const imagePath = file
       ? `/uploads/brands/${file.filename}`
       : null;
 
-    return this.brandService.create({ name }, imagePath);
+    const is_active = isActiveStr === 'true';
+
+    return this.brandService.create({ name, is_active }, imagePath);
   }
 
   @Get()
-  findAll() {
-    return this.brandService.findAll();
+  findAll(@Query('is_active') isActive?: string) { 
+    return this.brandService.findAll(isActive);
   }
 
   @Get(":id")
@@ -62,7 +66,7 @@ export class BrandController {
   @UseInterceptors(FileInterceptor("image", { storage: brandStorage }))
   update(
     @Param("id") id: string,
-    @Body() dto: UpdateBrandDto,
+    @Body() dto: UpdateBrandDto & { is_active?: string }, 
     @UploadedFile() file?: Express.Multer.File,
   ) {
     const imagePath = file
