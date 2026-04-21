@@ -23,6 +23,7 @@ import { TiktokModule } from './tiktok/tiktok.module';
 import { UserService } from './user/user.service';
 import { UserModule } from './user/user.module';
 import { CartModule } from './cart/cart.module';
+import { OrderModule } from './order/order.module';
 
 @Module({
   imports: [
@@ -47,7 +48,8 @@ import { CartModule } from './cart/cart.module';
     ContactModule,
     TiktokModule,
     UserModule,
-    CartModule, 
+    CartModule,
+    OrderModule, 
   ],
   controllers: [AppController], 
   providers: [AppService],     
