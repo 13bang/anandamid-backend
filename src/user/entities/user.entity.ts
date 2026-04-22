@@ -1,4 +1,11 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm';
+import { UserAddress } from './user-address.entity';
+
+export enum UserGender {
+    MALE = 'MALE',
+    FEMALE = 'FEMALE',
+    OTHER = 'OTHER'
+}
 
 @Entity('users')
 export class User {
@@ -17,8 +24,18 @@ export class User {
     @Column({ type: 'varchar', length: 20, nullable: true })
     phone_number: string;
 
-    @Column({ type: 'text', nullable: true })
-    address: string;
+    @Column({ type: 'date', nullable: true })
+    birth_date: Date;
+
+    @Column({
+        type: 'enum',
+        enum: UserGender,
+        nullable: true,
+    })
+    gender: UserGender;
+
+    @OneToMany(() => UserAddress, (address) => address.user)
+    addresses: UserAddress[];
 
     @Column({ type: 'text', nullable: true })
     avatar_url: string;
@@ -34,4 +51,10 @@ export class User {
 
     @UpdateDateColumn()
     updated_at: Date;
+
+    @Column({ type: 'varchar', nullable: true })
+    reset_token: string | null; 
+
+    @Column({ type: 'timestamp', nullable: true })
+    reset_token_expires: Date | null;
 }

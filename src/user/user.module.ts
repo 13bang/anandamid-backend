@@ -6,10 +6,11 @@ import { UserService } from './user.service';
 import { UserController } from './user.controller';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { UserAddress } from './entities/user-address.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User]), 
+    TypeOrmModule.forFeature([User, UserAddress]), 
     
     ConfigModule,
     JwtModule.registerAsync({

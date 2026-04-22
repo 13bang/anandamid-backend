@@ -1,4 +1,8 @@
-import { Controller, Post, Get, Put, Body, Req, UseGuards, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { 
+  Controller, Post, Get, Put, Delete, Patch, 
+  Body, Req, UseGuards, UseInterceptors, 
+  UploadedFile, BadRequestException, Param 
+} from '@nestjs/common';
 import { UserService } from './user.service';
 import { JwtUserGuard } from './guards/jwt-user.guard';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -8,6 +12,14 @@ import { extname } from 'path';
 @Controller('user/auth')
 export class UserController {
     constructor(private readonly userService: UserService) {}
+
+    // ================= AUTH ENDPOINTS =================
+
+    @UseGuards(JwtUserGuard)
+    @Put('change-password')
+    async changePassword(@Req() req: any, @Body() body: any) {
+        return this.userService.changePassword(req.user.id, body);
+    }
 
     @Post('register')
     async register(@Body() body: any) {
@@ -49,22 +61,52 @@ export class UserController {
         return this.userService.updateProfile(req.user.id, body);
     }
 
+    // ================= ADDRESS ENDPOINTS =================
+
+    @UseGuards(JwtUserGuard)
+    @Get('addresses')
+    async getMyAddresses(@Req() req: any) {
+        return this.userService.getMyAddresses(req.user.id);
+    }
+
+    @UseGuards(JwtUserGuard)
+    @Post('addresses')
+    async addAddress(@Req() req: any, @Body() dto: any) {
+        return this.userService.addAddress(req.user.id, dto);
+    }
+
+    @UseGuards(JwtUserGuard)
+    @Put('addresses/:id')
+    async updateAddress(@Req() req: any, @Param('id') addressId: string, @Body() dto: any) {
+        return this.userService.addAddress(req.user.id, { ...dto, id: addressId });
+    }
+
+    @UseGuards(JwtUserGuard)
+    @Patch('addresses/:id/default')
+    async setDefaultAddress(@Req() req: any, @Param('id') addressId: string) {
+        return this.userService.setDefaultAddress(req.user.id, addressId);
+    }
+
+    @UseGuards(JwtUserGuard)
+    @Delete('addresses/:id')
+    async deleteAddress(@Req() req: any, @Param('id') addressId: string) {
+        return this.userService.deleteAddress(req.user.id, addressId);
+    }
+
     // ================= UPLOAD AVATAR ENDPOINT =================
     @UseGuards(JwtUserGuard)
     @Post('profile/avatar')
     @UseInterceptors(FileInterceptor('file', {
         storage: diskStorage({
             destination: './uploads', 
-            // 1. Tambahkan tipe ': any' pada req
             filename: (req: any, file, cb) => { 
-                // 2. Tambahkan safe navigation operator (?) dan fallback
                 const userId = req.user?.id || 'unknown'; 
                 const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
                 const ext = extname(file.originalname);
                 cb(null, `avatar-${userId}-${uniqueSuffix}${ext}`);
             },
         }),
-        fileFilter: (req: any, file, cb) => { // Tambahkan : any juga di sini biar aman
+        fileFilter: (req: any, file, cb) => { 
             if (!file.mimetype.match(/\/(jpg|jpeg|png|gif)$/)) {
                 return cb(new BadRequestException('Hanya file gambar yang diizinkan!'), false);
             }
@@ -78,7 +120,16 @@ export class UserController {
         }
 
         const fileUrl = `/uploads/${file.filename}`;
-
         return this.userService.updateAvatar(req.user.id, fileUrl);
+    }
+
+    @Post('forgot-password')
+    async forgotPassword(@Body('email') email: string) {
+        return this.userService.forgotPassword(email);
+    }
+
+    @Post('reset-password')
+    async resetPassword(@Body() body: any) {
+        return this.userService.resetPassword(body.token, body.password);
     }
 }
