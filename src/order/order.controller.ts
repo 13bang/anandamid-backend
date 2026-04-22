@@ -1,6 +1,6 @@
 import { Controller, Post, Body, Req, UseGuards, Patch, Param, Get, Query } from '@nestjs/common';
 import { OrderService } from './order.service';
-import { CheckoutCartDto, CheckoutDirectDto } from './dto/checkout.dto';
+import { CheckoutCartDto, CheckoutDirectDto, CheckoutBuilderDto } from './dto/checkout.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { JwtUserGuard } from '../user/guards/jwt-user.guard'; 
 import { JwtAuthGuard } from '../auth/guards/jwt.guards'; 
@@ -56,5 +56,11 @@ export class OrderController {
   @Get(':id')
   async getOrderDetail(@Param('id') id: string) {
     return this.orderService.findOneOrder(id); 
+  }
+
+  @UseGuards(JwtUserGuard)
+  @Post('checkout/builder')
+  async checkoutBuilder(@Req() req: any, @Body() dto: CheckoutBuilderDto) {
+    return this.orderService.checkoutPCBuilder(req.user.id, dto);
   }
 }

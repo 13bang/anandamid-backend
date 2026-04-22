@@ -1,6 +1,10 @@
-import { IsArray, IsNotEmpty, IsString, IsOptional, IsNumber, Min } from 'class-validator';
+import { 
+  IsArray, IsNotEmpty, IsString, IsOptional, 
+  IsNumber, Min, ValidateNested 
+} from 'class-validator';
+import { Type } from 'class-transformer';
 
-// Untuk Checkout dari Keranjang
+// ================= CHECKOUT CART =================
 export class CheckoutCartDto {
   @IsArray()
   @IsNotEmpty()
@@ -12,13 +16,14 @@ export class CheckoutCartDto {
   notes?: string;
 }
 
-// Untuk Beli Langsung (Buy Now)
+// ================= CHECKOUT DIRECT =================
 export class CheckoutDirectDto {
   @IsNotEmpty()
   @IsString()
   product_id: string;
 
   @IsNotEmpty()
+  @Type(() => Number) // 🔥 penting
   @IsNumber()
   @Min(1)
   quantity: number;
@@ -26,6 +31,30 @@ export class CheckoutDirectDto {
   @IsOptional()
   @IsString()
   variasi?: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
+// ================= BUILDER ITEM =================
+class BuilderItemDto {
+  @IsNotEmpty()
+  @IsString()
+  product_id: string;
+
+  @Type(() => Number) // 🔥 penting
+  @IsNumber()
+  @Min(1)
+  quantity: number;
+}
+
+// ================= CHECKOUT BUILDER =================
+export class CheckoutBuilderDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => BuilderItemDto)
+  items: BuilderItemDto[];
 
   @IsOptional()
   @IsString()

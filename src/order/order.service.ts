@@ -273,4 +273,56 @@ export class OrderService {
 
         return order;
     }
+
+    // ====================== CHECKOUT PC BUILDER ======================
+    async checkoutPCBuilder(userId: string, dto: { items: { product_id: string, quantity: number }[], notes?: string }) {
+        if (!dto.items || dto.items.length === 0) {
+            throw new BadRequestException('Komponen rakitan tidak boleh kosong');
+        }
+
+        let totalPrice = 0;
+        const orderItems: Partial<OrderItem>[] = [];
+
+        // Looping untuk mengecek setiap produk yang dipilih
+        for (const item of dto.items) {
+            const product = await this.productRepo.findOne({ where: { id: item.product_id } });
+
+            if (!product) {
+                throw new NotFoundException(`Produk dengan ID ${item.product_id} tidak ditemukan`);
+            }
+
+            if (product.stock < item.quantity) {
+                throw new BadRequestException(`Stok produk ${product.name} tidak mencukupi. Tersisa ${product.stock}`);
+            }
+
+            const priceNormal = Number(product.price_normal || 0);
+            const priceDiscount = Number(product.price_discount || 0);
+            const finalPrice = priceDiscount > 0 ? priceNormal - priceDiscount : priceNormal;
+
+            totalPrice += finalPrice * item.quantity;
+
+            orderItems.push({
+                product: { id: product.id } as Product,
+                product_name: product.name,
+                variasi: null, // PC builder biasanya tanpa variasi, atau bisa disesuaikan nanti
+                quantity: item.quantity,
+                price: finalPrice,
+            });
+        }
+
+        const newOrder = this.orderRepo.create({
+            user: { id: userId },
+            invoice_number: this.generateInvoiceNumber(),
+            total_price: totalPrice,
+            notes: dto.notes,
+            items: orderItems as OrderItem[],
+        });
+
+        const savedOrder = await this.orderRepo.save(newOrder);
+
+        return {
+            message: 'Checkout Rakitan PC berhasil',
+            order: savedOrder,
+        };
+    }
 }
