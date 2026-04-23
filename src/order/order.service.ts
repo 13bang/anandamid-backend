@@ -221,6 +221,7 @@ export class OrderService {
         const qb = this.orderRepo.createQueryBuilder('order')
             .leftJoinAndSelect('order.user', 'user')
             .leftJoinAndSelect('order.items', 'items')
+            .leftJoinAndSelect('user.addresses', 'addresses')
             .leftJoinAndSelect('items.product', 'product') // 🔥 Tarik product
             .leftJoinAndSelect('product.images', 'images') // 🔥 Tarik images
             .orderBy('order.created_at', 'DESC');
@@ -252,7 +253,7 @@ export class OrderService {
     async findOneOrder(id: string) {
         const order = await this.orderRepo.findOne({
             where: { id },
-            relations: ['user', 'items', 'items.product', 'items.product.images'], // 🔥 Tambahkan images
+            relations: ['user', 'user.addresses', 'items', 'items.product', 'items.product.images'], 
         });
 
         if (!order) {
