@@ -1032,12 +1032,12 @@ async getCompatibilityBuilder(query: {
   const rams = await ramQuery.getMany();
 
   // ======================
-  // ✅ RESULT
+  // RESULT
   // ======================
   return {
     active_constraints: {
-      socket: requiredSocket || "Semua Socket",
-      ram_type: requiredRamType || "Semua Tipe",
+      socket: requiredSocket || "-",
+      ram_type: requiredRamType || "-",
     },
     available_processors: processors,
     available_motherboards: motherboards,

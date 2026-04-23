@@ -38,6 +38,7 @@ export class OrderController {
   // ====================== ENDPOINT ADMIN ======================
   
   @UseGuards(JwtAuthGuard) 
+  
   @Patch(':id/status')
   async updateStatus(
     @Param('id') orderId: string,
