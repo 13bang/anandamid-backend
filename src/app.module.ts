@@ -49,7 +49,7 @@ import { OrderModule } from './order/order.module';
     TiktokModule,
     UserModule,
     CartModule,
-    OrderModule, 
+    OrderModule,
   ],
   controllers: [AppController], 
   providers: [AppService],     
