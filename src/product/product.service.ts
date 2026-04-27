@@ -113,23 +113,23 @@ private async downloadAndReplace(image: any, createThumb = false) {
   const originalFile = path.join(this.originalPath, fileName);
   const thumbFile = path.join(this.thumbPath, fileName);
 
+  // CASE 1: Local File
   if (
     image.image_url?.startsWith("/uploads") &&
     fs.existsSync(originalFile)
   ) {
-
-    if (!fs.existsSync(thumbFile)) {
-
-      await sharp(originalFile)
-        .resize(300, 300, { fit: "inside" })
-        .jpeg({ quality: 75 })
-        .toFile(thumbFile);
-
-      console.log("Thumbnail regenerated:", fileName);
+    if (createThumb) {
+      if (!fs.existsSync(thumbFile)) {
+        await sharp(originalFile)
+          .resize(300, 300, { fit: "inside" })
+          .jpeg({ quality: 75 })
+          .toFile(thumbFile);
+        console.log("Thumbnail regenerated:", fileName);
+      }
+      image.thumbnail_url = `/uploads/products/thumbnails/${fileName}`;
+    } else {
+      image.thumbnail_url = null; 
     }
-
-    image.thumbnail_url = `/uploads/products/thumbnails/${fileName}`;
-
     return;
   }
 
@@ -698,7 +698,7 @@ async findOneByParams(id: string): Promise<any> {
 
 async updateProductByParams(
   id: string,
-  dto: UpdateProductDto,
+  dto: any, // 🔥 Pakai any dulu sementara untuk bypass DTO filter
 ): Promise<any> {
 
   const product = await this.findOneByParams(id);
@@ -710,11 +710,7 @@ async updateProductByParams(
       const brand = await this.brandRepository.findOne({
         where: { id: dto.brand_id },
       });
-
-      if (!brand) {
-        throw new NotFoundException('Brand not found');
-      }
-
+      if (!brand) throw new NotFoundException('Brand not found');
       product.brand = brand;
     }
   }
@@ -723,19 +719,56 @@ async updateProductByParams(
     const category = await this.categoryRepository.findOne({
       where: { id: dto.category_id },
     });
-
-    if (!category) {
-      throw new NotFoundException('Category not found');
-    }
-
+    if (!category) throw new NotFoundException('Category not found');
     product.category = category;
   }
 
-  Object.assign(product, dto);
+  // 🔥 1. Pisahkan array `images` dari data produk
+  const { images, ...productData } = dto;
+  
+  // DEBUGGING: Pastikan array images dari frontend kebaca di backend!
+  // console.log("GAMBAR DARI FRONTEND:", images);
 
+  // 🔥 2. Assign data selain images ke tabel products
+  Object.assign(product, productData);
   await this.productRepository.save(product);
 
-  // 🔥 RELOAD FULL DATA WITH RELATIONS
+  // 🔥 3. LOGIC UPDATE SORT ORDER & REASSIGN THUMBNAIL
+  if (images && Array.isArray(images)) {
+    for (const img of images) {
+      if (img.id && img.sort_order !== undefined) {
+        
+        let thumbnailUrl: string | null = null;
+
+        // Jika dia adalah gambar nomor 1 (sort_order = 0), assign thumbnail-nya
+        if (img.sort_order === 0) {
+          const fileName = path.basename(img.image_url || "");
+          const originalFile = path.join(this.originalPath, fileName);
+          const thumbFile = path.join(this.thumbPath, fileName);
+
+          // Kalau file ori ada tapi thumb belum dibuat, generate!
+          if (fs.existsSync(originalFile) && !fs.existsSync(thumbFile)) {
+            await sharp(originalFile)
+              .resize(300, 300, { fit: "inside" })
+              .jpeg({ quality: 75 })
+              .toFile(thumbFile);
+          }
+
+          if (fs.existsSync(originalFile)) {
+            thumbnailUrl = `/uploads/products/thumbnails/${fileName}`;
+          }
+        }
+
+        // Paksa update baris gambar di DB!
+        await this.productImageRepository.update(img.id, {
+          sort_order: img.sort_order,
+          thumbnail_url: thumbnailUrl, // yang bukan urutan 0 otomatis jadi null
+        });
+      }
+    }
+  }
+
+  // 🔥 RELOAD FULL DATA DENGAN RELASI TERBARU
   return this.findOneByParams(id);
 }
 

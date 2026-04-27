@@ -5,7 +5,8 @@ import {
   IsBoolean,
   IsUUID,
   IsInt,
-  Min
+  Min,
+  IsArray 
 } from "class-validator";
 
 export class UpdateProductDto {
@@ -59,5 +60,10 @@ export class UpdateProductDto {
   @IsString()
   ram_type?: string;   
 
+  @IsOptional() 
   brand_id?: string;
+
+  @IsOptional()
+  @IsArray()
+  images?: any[];
 }
