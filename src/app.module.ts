@@ -24,6 +24,7 @@ import { UserService } from './user/user.service';
 import { UserModule } from './user/user.module';
 import { CartModule } from './cart/cart.module';
 import { OrderModule } from './order/order.module';
+import { ProductVariantModule } from "./product/product-variant.module";
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { OrderModule } from './order/order.module';
     UserModule,
     CartModule,
     OrderModule,
+    ProductVariantModule,
   ],
   controllers: [AppController], 
   providers: [AppService],     

@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull } from 'typeorm'; // Import IsNull
+import { Repository, IsNull } from 'typeorm'; 
 import { Cart } from './entities/cart.entity';
 
 @Injectable()
@@ -36,41 +36,57 @@ export class CartService {
     async getMyCart(userId: string) {
         const carts = await this.cartRepo.find({
             where: { user_id: userId },
-            relations: ['product', 'product.images'],
+            relations: ['product', 'product.images', 'product.variants'], // 🔥 Load relasi variants
             select: {
-            id: true,
-            quantity: true,
-            selected_variasi: true,
-            product: {
                 id: true,
-                name: true,
-                price_normal: true,
-                price_discount: true,
-                stock: true,
-                images: {
-                id: true,
-                thumbnail_url: true,
-                sort_order: true,
+                quantity: true,
+                selected_variasi: true,
+                product: {
+                    id: true,
+                    name: true,
+                    // 🔥 Kolom harga dan stok produk dihapus dari select
+                    images: {
+                        id: true,
+                        thumbnail_url: true,
+                        sort_order: true,
+                    },
+                    variants: { // 🔥 Tambahkan select untuk variant
+                        id: true,
+                        variant_name: true,
+                        price_normal: true,
+                        price_discount: true,
+                        stock: true,
+                    }
                 },
-            },
             },
             order: { created_at: 'DESC' },
         });
 
         return carts.map((item) => {
-            const mainImage = item.product.images.find((img) => img.sort_order === 0) 
-                            || item.product.images[0];
+            const mainImage = item.product.images?.find((img) => img.sort_order === 0) 
+                            || item.product.images?.[0];
+
+            // 🔥 LOGIC BARU: Cocokkan variasi keranjang dengan data di database
+            let matchedVariant = item.product.variants?.find(
+                (v) => v.variant_name === item.selected_variasi
+            );
+
+            // Kalau gak ketemu cocokannya (atau produk simple tanpa variasi), pakai variasi Default/pertama
+            if (!matchedVariant && item.product.variants && item.product.variants.length > 0) {
+                matchedVariant = item.product.variants[0];
+            }
 
             return {
                 id: item.id,
                 quantity: item.quantity,
-                selected_variasi: item.selected_variasi,
+                selected_variasi: item.selected_variasi || matchedVariant?.variant_name,
                 product: {
                     id: item.product.id,
                     name: item.product.name,
-                    price_normal: item.product.price_normal,
-                    price_discount: item.product.price_discount,
-                    stock: item.product.stock,
+                    // 🔥 Ambil harga dan stok dari matchedVariant
+                    price_normal: Number(matchedVariant?.price_normal || 0),
+                    price_discount: Number(matchedVariant?.price_discount || 0),
+                    stock: Number(matchedVariant?.stock || 0),
                     thumbnail: mainImage?.thumbnail_url || null,
                 },
             };

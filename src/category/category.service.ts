@@ -75,7 +75,8 @@ export class CategoryService {
   async findOneCategory(id: string) {
     const category = await this.categoryRepository.findOne({
       where: { id },
-      relations: ['products', 'grouping'],
+      // 🔥 Tambahkan relasi products.variants agar harganya terbaca
+      relations: ['products', 'products.variants', 'grouping'], 
     });
 
     if (!category) throw new NotFoundException('Category not found');
@@ -91,12 +92,23 @@ export class CategoryService {
             name: category.grouping.name,
           }
         : null,
-      total_products: category.products.length,
-      products: category.products.map((p) => ({
-        id: p.id,
-        name: p.name,
-        final_price: p.final_price,
-      })),
+      total_products: category.products?.length || 0,
+      products: category.products?.map((p) => {
+        // 🔥 Ambil variasi default (index 0) untuk perhitungan harga
+        const defaultVariant = p.variants && p.variants.length > 0 
+          ? p.variants[0] 
+          : null;
+
+        const finalPrice =
+          Number(defaultVariant?.price_normal || 0) -
+          Number(defaultVariant?.price_discount || 0);
+
+        return {
+          id: p.id,
+          name: p.name,
+          final_price: finalPrice, 
+        };
+      }) || [],
     };
   }
 

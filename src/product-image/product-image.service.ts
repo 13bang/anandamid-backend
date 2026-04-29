@@ -63,7 +63,7 @@ export class ProductImageService {
     };
   }
 
-  async create(productId: string, file: Express.Multer.File) {
+  async create(productId: string, file: Express.Multer.File, variantId?: string) {
     const product = await this.productRepo.findOne({
       where: { id: productId },
       relations: ['images'],
@@ -75,30 +75,40 @@ export class ProductImageService {
     this.ensureDirectories();
 
     const fileName = `${uuidv4()}.jpg`;
-
     const saved = await this.saveImage(file.buffer, fileName);
+
+    // 🔥 Ambil gambar sesuai konteks (per variant atau per produk tanpa variant)
+    let contextImages: ProductImage[];
+    if (variantId) {
+      contextImages = await this.repo.find({
+        where: { variant_id: variantId },
+        order: { sort_order: 'ASC' },
+      });
+    } else {
+      contextImages = (product.images || []).filter(img => !img.variant_id);
+    }
+
+    const isFirstForContext = contextImages.length === 0;
 
     let thumbnailUrl: string | null = null;
 
-    // jika ini gambar pertama
-    if (!product.images || product.images.length === 0) {
+    if (isFirstForContext) {
       await sharp(file.buffer)
         .resize(300, 300, { fit: 'inside' })
         .jpeg({ quality: 75 })
         .toFile(saved.thumbFile);
-
       thumbnailUrl = saved.thumb;
     }
 
     const image = this.repo.create();
-
     image.image_url = saved.original;
     image.thumbnail_url = thumbnailUrl;
-    image.sort_order =
-      product.images?.length
-        ? Math.max(...product.images.map(i => i.sort_order)) + 1
-        : 0;
+    // 🔥 sort_order dihitung dari konteks yang benar
+    image.sort_order = contextImages.length > 0
+      ? Math.max(...contextImages.map(i => i.sort_order)) + 1
+      : 0;
     image.product = product;
+    image.variant_id = variantId || null;
 
     return this.repo.save(image);
   }

@@ -6,6 +6,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { Product } from '../../product/entities/product.entity';
+import { ProductVariant } from 'src/product/entities/product-variant.entity';
 
 @Entity('product_images')
 export class ProductImage {
@@ -27,4 +28,11 @@ export class ProductImage {
   })
   @JoinColumn({ name: 'product_id' })
   product: Product;
+
+  @ManyToOne(() => ProductVariant, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'variant_id' })
+  variant: ProductVariant | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  variant_id: string | null;
 }

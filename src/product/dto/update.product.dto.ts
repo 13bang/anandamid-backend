@@ -6,8 +6,36 @@ import {
   IsUUID,
   IsInt,
   Min,
-  IsArray 
+  IsArray,
+  ValidateNested,
 } from "class-validator";
+import { Type } from "class-transformer";
+
+class UpdateVariantItemDto {
+  @IsOptional()
+  id?: string;
+
+  @IsOptional()
+  @IsString()
+  variant_name?: string;
+
+  @IsOptional()
+  @IsNumber()
+  price_normal?: number;
+
+  @IsOptional()
+  @IsNumber()
+  price_discount?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  stock?: number;
+
+  @IsOptional()
+  @IsString()
+  sku_seller?: string;
+}
 
 export class UpdateProductDto {
 
@@ -54,16 +82,31 @@ export class UpdateProductDto {
 
   @IsOptional()
   @IsString()
-  socket_type?: string;  
+  socket_type?: string;
 
   @IsOptional()
   @IsString()
-  ram_type?: string;   
+  ram_type?: string;
 
-  @IsOptional() 
+  @IsOptional()
   brand_id?: string;
 
   @IsOptional()
   @IsArray()
   images?: any[];
+
+  // 🔥 TAMBAHAN BARU
+  @IsOptional()
+  @IsBoolean()
+  has_variants?: boolean;
+
+  @IsOptional()
+  @IsString()
+  variant_type_name?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => UpdateVariantItemDto)
+  variants?: UpdateVariantItemDto[];
 }

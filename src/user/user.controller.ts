@@ -1,10 +1,11 @@
 import { 
   Controller, Post, Get, Put, Delete, Patch, 
   Body, Req, UseGuards, UseInterceptors, 
-  UploadedFile, BadRequestException, Param 
+  UploadedFile, BadRequestException, Param, Query 
 } from '@nestjs/common';
 import { UserService } from './user.service';
 import { JwtUserGuard } from './guards/jwt-user.guard';
+import { JwtAuthGuard } from 'src/auth/guards/jwt.guards';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
@@ -131,5 +132,23 @@ export class UserController {
     @Post('reset-password')
     async resetPassword(@Body() body: any) {
         return this.userService.resetPassword(body.token, body.password);
+    }
+
+    @UseGuards(JwtAuthGuard)
+    @Get('admin/all')
+    async getAllUsers(@Query() query: any) {
+        return this.userService.getAllUsers(query);
+    }
+
+    @UseGuards(JwtAuthGuard)
+    @Get('admin/:id')
+    async getUserById(@Param('id') id: string) {
+        return this.userService.getUserById(id);
+    }
+
+    @UseGuards(JwtAuthGuard)
+    @Patch('admin/:id/toggle-active')
+    async toggleUserActive(@Param('id') id: string) {
+        return this.userService.toggleUserActive(id);
     }
 }

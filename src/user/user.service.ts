@@ -331,4 +331,62 @@ export class UserService {
 
     return { message: 'Password berhasil diperbarui, silakan login kembali.' };
   }
+
+  async getAllUsers(query: any) {
+      const page = parseInt(query.page) || 1;
+      const limit = parseInt(query.limit) || 20;
+      const search = query.search || '';
+      const skip = (page - 1) * limit;
+
+      const qb = this.userRepo.createQueryBuilder('user')
+          .leftJoinAndSelect('user.addresses', 'addresses')
+          .orderBy('user.created_at', 'DESC')
+          .skip(skip)
+          .take(limit);
+
+      if (search) {
+          qb.where(
+              'user.full_name ILIKE :search OR user.email ILIKE :search OR user.phone_number ILIKE :search',
+              { search: `%${search}%` }
+          );
+      }
+
+      const [data, total] = await qb.getManyAndCount();
+
+      const sanitized = data.map(({ 
+          password, hashed_refresh_token, reset_token, reset_token_expires, ...u 
+      }) => u);
+
+      return {
+          data: sanitized,
+          total,
+          page,
+          last_page: Math.ceil(total / limit),
+      };
+  }
+
+  async getUserById(id: string) {
+      const user = await this.userRepo.findOne({ 
+          where: { id }, 
+          relations: ['addresses'],
+      });
+      if (!user) throw new UnauthorizedException('User tidak ditemukan');
+
+      const { password, hashed_refresh_token, reset_token, reset_token_expires, ...result } = user;
+      return result;
+  }
+
+  async toggleUserActive(id: string) {
+      const user = await this.userRepo.findOne({ where: { id } });
+      if (!user) throw new UnauthorizedException('User tidak ditemukan');
+
+      user.is_active = !user.is_active;
+      await this.userRepo.save(user);
+
+      return { 
+          message: `User berhasil di${user.is_active ? 'aktifkan' : 'nonaktifkan'}`,
+          is_active: user.is_active 
+      };
+  }
 }
+

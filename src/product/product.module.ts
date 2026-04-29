@@ -7,10 +7,12 @@ import { ProductImage } from 'src/product-image/entities/product-image.entity';
 import { AdminProductController } from './admin-product.controller';
 import { PublicProductController } from './public-product.controller';
 import { Brand } from 'src/brand/entities/brand.entity';
+import { ProductVariant } from './entities/product-variant.entity';
+import { ProductView } from './entities/product-view.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Product, Category, ProductImage, Brand]) 
+    TypeOrmModule.forFeature([Product, Category, ProductImage, Brand, ProductVariant, ProductView]) 
   ],
   controllers: [AdminProductController, PublicProductController],
   providers: [ProductService],

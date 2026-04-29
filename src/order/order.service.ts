@@ -5,6 +5,7 @@ import { Order } from './entities/order.entity';
 import { OrderItem } from './entities/order-item.entity';
 import { Cart } from '../cart/entities/cart.entity';
 import { Product } from '../product/entities/product.entity';
+import { ProductVariant } from '../product/entities/product-variant.entity'; // 🔥 Import Variant
 import { CheckoutCartDto, CheckoutDirectDto } from './dto/checkout.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 
@@ -15,6 +16,7 @@ export class OrderService {
         @InjectRepository(OrderItem) private orderItemRepo: Repository<OrderItem>,
         @InjectRepository(Cart) private cartRepo: Repository<Cart>,
         @InjectRepository(Product) private productRepo: Repository<Product>,
+        @InjectRepository(ProductVariant) private variantRepo: Repository<ProductVariant>, // 🔥 Inject Variant Repo
     ) {}
 
     // ====================== GENERATOR INVOICE ======================
@@ -31,7 +33,7 @@ export class OrderService {
                 id: In(dto.cart_ids),
                 user_id: userId 
             },
-            relations: ['product'],
+            relations: ['product', 'product.variants'], // 🔥 Load relasi variants
         });
 
         if (cartItems.length === 0) {
@@ -44,12 +46,26 @@ export class OrderService {
         for (const cart of cartItems) {
             if (!cart.product) continue;
 
-            if (cart.product.stock < cart.quantity) {
-                throw new BadRequestException(`Stok produk ${cart.product.name} tidak mencukupi.`);
+            // 🔥 Cari variasi yang dipilih user
+            let matchedVariant = cart.product.variants?.find(
+                (v) => v.variant_name === cart.selected_variasi
+            );
+
+            // Kalau gak nemu, pakai variasi default
+            if (!matchedVariant && cart.product.variants?.length > 0) {
+                matchedVariant = cart.product.variants[0];
             }
 
-            const priceNormal = Number(cart.product.price_normal || 0);
-            const priceDiscount = Number(cart.product.price_discount || 0);
+            if (!matchedVariant) {
+                throw new BadRequestException(`Data variasi produk ${cart.product.name} tidak valid.`);
+            }
+
+            if (matchedVariant.stock < cart.quantity) {
+                throw new BadRequestException(`Stok produk ${cart.product.name} (${matchedVariant.variant_name}) tidak mencukupi.`);
+            }
+
+            const priceNormal = Number(matchedVariant.price_normal || 0);
+            const priceDiscount = Number(matchedVariant.price_discount || 0);
             const finalPrice = priceDiscount > 0 ? priceNormal - priceDiscount : priceNormal;
 
             totalPrice += finalPrice * cart.quantity;
@@ -57,7 +73,7 @@ export class OrderService {
             orderItems.push({
                 product: { id: cart.product.id } as Product,
                 product_name: cart.product.name,
-                variasi: cart.selected_variasi,
+                variasi: matchedVariant.variant_name, // Simpan nama variasi fix
                 quantity: cart.quantity,
                 price: finalPrice,
             });
@@ -82,18 +98,34 @@ export class OrderService {
 
     // ====================== CHECKOUT BELI LANGSUNG ======================
     async checkoutDirect(userId: string, dto: CheckoutDirectDto) {
-        const product = await this.productRepo.findOne({ where: { id: dto.product_id } });
+        const product = await this.productRepo.findOne({ 
+            where: { id: dto.product_id },
+            relations: ['variants'] // 🔥 Load relasi variants
+        });
 
         if (!product) {
             throw new NotFoundException('Produk tidak ditemukan');
         }
 
-        if (product.stock < dto.quantity) {
-            throw new BadRequestException(`Stok produk ${product.name} hanya tersisa ${product.stock}`);
+        // 🔥 Cari variasi yang dipilih user
+        let matchedVariant = product.variants?.find(
+            (v) => v.variant_name === dto.variasi
+        );
+
+        if (!matchedVariant && product.variants?.length > 0) {
+            matchedVariant = product.variants[0];
         }
 
-        const priceNormal = Number(product.price_normal || 0);
-        const priceDiscount = Number(product.price_discount || 0);
+        if (!matchedVariant) {
+            throw new BadRequestException(`Data variasi produk tidak valid.`);
+        }
+
+        if (matchedVariant.stock < dto.quantity) {
+            throw new BadRequestException(`Stok produk ${product.name} (${matchedVariant.variant_name}) hanya tersisa ${matchedVariant.stock}`);
+        }
+
+        const priceNormal = Number(matchedVariant.price_normal || 0);
+        const priceDiscount = Number(matchedVariant.price_discount || 0);
         const finalPrice = priceDiscount > 0 ? priceNormal - priceDiscount : priceNormal;
 
         const totalPrice = finalPrice * dto.quantity;
@@ -101,7 +133,7 @@ export class OrderService {
         const orderItem: Partial<OrderItem> = {
             product: { id: product.id } as Product,
             product_name: product.name,
-            variasi: dto.variasi || null,
+            variasi: matchedVariant.variant_name,
             quantity: dto.quantity,
             price: finalPrice,
         };
@@ -126,11 +158,10 @@ export class OrderService {
     async findMyOrders(userId: string) {
         const orders = await this.orderRepo.find({
             where: { user: { id: userId } },
-            relations: ['items', 'items.product', 'items.product.images'], // 🔥 Tambahkan images
+            relations: ['items', 'items.product', 'items.product.images'], 
             order: { created_at: 'DESC' },
         });
 
-        // 🔥 Mapping agar format product punya field 'thumbnail'
         return orders.map((order) => {
             return {
                 ...order,
@@ -138,14 +169,14 @@ export class OrderService {
                     let thumbnail: string | null = null;
                     if (item.product && item.product.images && item.product.images.length > 0) {
                         const mainImage = item.product.images.find((img) => img.sort_order === 0) || item.product.images[0];
-                        thumbnail = mainImage.thumbnail_url || null; // Sesuaikan dengan penamaan kolom di DB
+                        thumbnail = mainImage.thumbnail_url || null; 
                     }
 
                     return {
                         ...item,
                         product: item.product ? {
                             ...item.product,
-                            thumbnail: thumbnail, // Menyisipkan thumbnail ke object product
+                            thumbnail: thumbnail, 
                         } : null,
                     };
                 }),
@@ -180,30 +211,50 @@ export class OrderService {
     async updateOrderStatus(orderId: string, dto: UpdateOrderStatusDto) {
         const order = await this.orderRepo.findOne({
             where: { id: orderId },
-            relations: ['items', 'items.product'], 
+            relations: ['items', 'items.product', 'items.product.variants'], // 🔥 Load relasi variants
         });
 
         if (!order) {
             throw new NotFoundException('Pesanan tidak ditemukan');
         }
 
+        // 🔥 Logika Kurangi Stok
         if (order.status === 'PENDING' && dto.status === 'LUNAS') {
             for (const item of order.items) {
                 if (item.product) {
-                    if (item.product.stock < item.quantity) {
-                        throw new BadRequestException(`Gagal: Stok produk ${item.product.name} tidak mencukupi untuk pesanan ini.`);
+                    let matchedVariant = item.product.variants?.find(
+                        (v) => v.variant_name === item.variasi
+                    );
+                    if (!matchedVariant && item.product.variants?.length > 0) {
+                        matchedVariant = item.product.variants[0];
                     }
-                    item.product.stock -= item.quantity;
-                    await this.productRepo.save(item.product);
+
+                    if (matchedVariant) {
+                        if (matchedVariant.stock < item.quantity) {
+                            throw new BadRequestException(`Gagal: Stok produk ${item.product.name} (${matchedVariant.variant_name}) tidak mencukupi untuk pesanan ini.`);
+                        }
+                        matchedVariant.stock -= item.quantity;
+                        await this.variantRepo.save(matchedVariant); // 🔥 Save perubahan stok di variant
+                    }
                 }
             }
         }
 
+        // 🔥 Logika Kembalikan Stok
         if (order.status === 'LUNAS' && dto.status === 'BATAL') {
             for (const item of order.items) {
                 if (item.product) {
-                    item.product.stock += item.quantity;
-                    await this.productRepo.save(item.product);
+                    let matchedVariant = item.product.variants?.find(
+                        (v) => v.variant_name === item.variasi
+                    );
+                    if (!matchedVariant && item.product.variants?.length > 0) {
+                        matchedVariant = item.product.variants[0];
+                    }
+
+                    if (matchedVariant) {
+                        matchedVariant.stock += item.quantity;
+                        await this.variantRepo.save(matchedVariant); // 🔥 Save pengembalian stok di variant
+                    }
                 }
             }
         }
@@ -222,8 +273,8 @@ export class OrderService {
             .leftJoinAndSelect('order.user', 'user')
             .leftJoinAndSelect('order.items', 'items')
             .leftJoinAndSelect('user.addresses', 'addresses')
-            .leftJoinAndSelect('items.product', 'product') // 🔥 Tarik product
-            .leftJoinAndSelect('product.images', 'images') // 🔥 Tarik images
+            .leftJoinAndSelect('items.product', 'product') 
+            .leftJoinAndSelect('product.images', 'images') 
             .orderBy('order.created_at', 'DESC');
 
         if (query.status) {
@@ -284,20 +335,29 @@ export class OrderService {
         let totalPrice = 0;
         const orderItems: Partial<OrderItem>[] = [];
 
-        // Looping untuk mengecek setiap produk yang dipilih
         for (const item of dto.items) {
-            const product = await this.productRepo.findOne({ where: { id: item.product_id } });
+            const product = await this.productRepo.findOne({ 
+                where: { id: item.product_id },
+                relations: ['variants'] // 🔥 Load relasi variants
+            });
 
             if (!product) {
                 throw new NotFoundException(`Produk dengan ID ${item.product_id} tidak ditemukan`);
             }
 
-            if (product.stock < item.quantity) {
-                throw new BadRequestException(`Stok produk ${product.name} tidak mencukupi. Tersisa ${product.stock}`);
+            // PC Builder biasanya tanpa variasi, jadi kita pakai variasi default (index 0)
+            const matchedVariant = product.variants && product.variants.length > 0 ? product.variants[0] : null;
+
+            if (!matchedVariant) {
+                throw new BadRequestException(`Data variasi produk ${product.name} tidak valid.`);
             }
 
-            const priceNormal = Number(product.price_normal || 0);
-            const priceDiscount = Number(product.price_discount || 0);
+            if (matchedVariant.stock < item.quantity) {
+                throw new BadRequestException(`Stok produk ${product.name} tidak mencukupi. Tersisa ${matchedVariant.stock}`);
+            }
+
+            const priceNormal = Number(matchedVariant.price_normal || 0);
+            const priceDiscount = Number(matchedVariant.price_discount || 0);
             const finalPrice = priceDiscount > 0 ? priceNormal - priceDiscount : priceNormal;
 
             totalPrice += finalPrice * item.quantity;
@@ -305,7 +365,7 @@ export class OrderService {
             orderItems.push({
                 product: { id: product.id } as Product,
                 product_name: product.name,
-                variasi: null, // PC builder biasanya tanpa variasi, atau bisa disesuaikan nanti
+                variasi: "Default", // Atau matchedVariant.variant_name
                 quantity: item.quantity,
                 price: finalPrice,
             });

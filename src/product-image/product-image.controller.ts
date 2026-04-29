@@ -16,8 +16,9 @@ export class ProductImageController {
   create(
     @UploadedFile() file: Express.Multer.File,
     @Body('product_id') productId: string,
+    @Body('variant_id') variantId?: string, 
   ) {
-    return this.productImageService.create(productId, file);
+    return this.productImageService.create(productId, file, variantId);
   }
 
   @Get()
@@ -46,4 +47,3 @@ export class ProductImageController {
     return this.productImageService.remove(id);
   }
 }
-
